@@ -186,13 +186,14 @@ const ButtonWrapper = styled.div`
 `;
 
 const AvatarMenu = () => {
-  const { authenticated } = useSession();
+  const { authenticated, walletCapabilities } = useSession();
   const { captain, crew, loading: crewIsLoading } = useCrewContext();
   const history = useHistory();
   const setCoachmarkRef = useCoachmarkRefSetter();
   const simulation = useSimulationState();
 
   const onSetAction = useStore(s => s.dispatchActionDialog);
+  const dispatchLauncherPage = useStore(s => s.dispatchLauncherPage);
   const dispatchSimulationState = useStore(s => s.dispatchSimulationState);
   const asteroidId = useStore(s => s.asteroids.origin);
   const simulationActions = useStore(s => s.simulationActions);
@@ -225,8 +226,14 @@ const AvatarMenu = () => {
       }
       return history.push(`/crewmate/${crewmateId}`);
     }
+
+    if (!crewmateId && !crew?._crewmates?.length && walletCapabilities?.preferredForStarterPacks) {
+      dispatchLauncherPage('store', 'packs', { menuCollapsed: true });
+      return;
+    }
+
     return history.push('/crew');
-  }, [simulation, simulationActions]);
+  }, [crew?._crewmates?.length, dispatchLauncherPage, history, simulation, simulationActions, walletCapabilities?.preferredForStarterPacks]);
 
   useEffect(() => {
     const { canFastForward, crewReadyAt, taskReadyAt } = simulation || {};
@@ -326,7 +333,7 @@ const AvatarMenu = () => {
                       </>
                     )
                     : (
-                      <Instruction>Recruit a captain to begin</Instruction>
+                      <Instruction>Recruit your crew to begin</Instruction>
                     )
                   )
                 }

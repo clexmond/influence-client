@@ -1051,7 +1051,7 @@ const useSimulationSteps = () => {
           disabled: connecting,
           onClick: () => {
             fireTrackingEvent('simulation', { step: 'login' });
-            login({ webWallet: true });
+            login({ controller: true });
             // TODO: add on-logged-in url
           },
         }

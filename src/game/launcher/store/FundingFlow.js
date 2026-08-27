@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import styled, { css } from 'styled-components';
+import styled from 'styled-components';
 import { createPortal } from 'react-dom';
 import { PropagateLoader as Loader } from 'react-spinners';
 import { RampInstantSDK } from '@ramp-network/ramp-instant-sdk';
@@ -10,7 +10,6 @@ import { ChevronRightIcon, CloseIcon, LinkIcon, WalletIcon } from '~/components/
 import Details from '~/components/DetailsV2';
 import useSession from '~/hooks/useSession';
 import BrightButton from '~/components/BrightButton';
-import MouseoverInfoPane from '~/components/MouseoverInfoPane';
 import useWalletPurchasableBalances from '~/hooks/useWalletPurchasableBalances';
 import UserPrice from '~/components/UserPrice';
 import { TOKEN, TOKEN_FORMAT, TOKEN_FORMATTER } from '~/lib/priceUtils';
@@ -84,20 +83,6 @@ const FundingButtons = styled.div`
   }
 `;
 
-const Disclaimer = styled.div`
-  color: ${p => p.theme.colors.main};
-  font-size: 12px;
-  padding: 10px 10px 20px;
-  pointer-events: ${p => p.visible ? 'all' : 'none'};
-  & a {
-    color: white;
-    text-decoration: none;
-    &:hover {
-      text-decoration: underline;
-    }
-  }
-`;
-
 const Receipt = styled.div`
   margin-bottom: 30px;
   width: 100%;
@@ -130,38 +115,6 @@ const ButtonRow = styled.div`
     margin-right: 10px;
     &:last-child {
       margin-right: 0;
-    }
-  }
-`;
-
-const Collapsible = styled.div`
-  height: 26px;
-  overflow: visible hidden;
-  transition: height 150ms ease;
-
-  & > h4 {
-    border-bottom: 1px solid #333;
-    padding-bottom: 6px;
-
-    cursor: ${p => p.theme.cursors.active};
-    opacity: 0.5;
-    transition: opacity 150ms ease;
-    & > svg {
-      transition: transform 150ms ease;
-    }
-  }
-  & > ${ButtonRow} {
-    padding: 0 3px;
-  }
-
-  &:hover {
-    height: 92px;
-    & > h4 {
-      border-bottom-color: transparent;
-      opacity: 1;
-      & > svg {
-        transform: rotate(90deg);
-      }
     }
   }
 `;
@@ -301,12 +254,11 @@ const RAMP_PURCHASE_STATUS = {
 export const FundingFlow = ({ totalPrice, onClose, onFunded }) => {
   const createAlert = useStore(s => s.dispatchAlertLogged);
 
-  const { accountAddress, chainId, walletId } = useSession();
+  const { accountAddress, chainId } = useSession();
   const priceHelper = usePriceHelper();
   const { data: wallet, refetch: refetchBalances } = useWalletPurchasableBalances();
   const preferredUiCurrency = useStore(s => s.getPreferredUiCurrency());
 
-  const [hoveredRampButton, setHoveredRampButton] = useState(false);
   const [ramping, setRamping] = useState();
   const [waiting, setWaiting] = useState();
 
@@ -392,18 +344,6 @@ export const FundingFlow = ({ totalPrice, onClose, onFunded }) => {
     if (needed < 200e6) return [needed, 250e6, 500e6];
     return [needed]
   }, [fundsNeeded]);
-
-  const to = useRef();
-  const onRampHover = useCallback((which) => (e) => {
-    if (to.current) clearTimeout(to.current);
-    if (which) {
-      setHoveredRampButton(e.target);
-    } else {  // close on delay so have time to click the link
-      to.current = setTimeout(() => {
-        setHoveredRampButton();
-      }, 1500);
-    }
-  }, []);
 
   const [rampPurchase, setRampPurchase] = useState();
   const checkRampPurchase = useCallback(async (purchase) => {
@@ -578,87 +518,27 @@ export const FundingFlow = ({ totalPrice, onClose, onFunded }) => {
               </Receipt>
             )}
 
-            {walletId === 'argentWebWallet' && (
-              <FundingButtons>
+            <FundingButtons>
+              {appConfig.get('Starknet.chainId') === '0x534e5f5345504f4c4941' && (
+                <EthFaucetButton
+                  onError={onFaucetError}
+                  onProcessing={(started) => setWaiting(!!started)} />
+              )}
 
-                {appConfig.get('Starknet.chainId') === '0x534e5f5345504f4c4941' && (
-                  <>
-                    <h4>
-                      <span>Request Free ETH</span>
-                    </h4>
-                    <ButtonRow style={{ marginBottom: 10 }}>
-                      <EthFaucetButton
-                        onError={onFaucetError}
-                        onProcessing={(started) => setWaiting(!!started)} />
-                    </ButtonRow>
-                  </>
-                )}
+              <BrightButton onClick={onClickStarkgate}>
+                <span>Bridge Funds from L1</span>
+                <ChevronRightIcon />
+              </BrightButton>
 
-                <h4>
-                  <span>Recharge Wallet</span>
-                  <label onMouseEnter={onRampHover(true)} onMouseLeave={onRampHover(false)}>Disclaimer</label>
-                  <MouseoverInfoPane
-                    referenceEl={hoveredRampButton}
-                    css={css`margin-top:10px;`}
-                    placement="bottom"
-                    visible={!!hoveredRampButton}
-                    zIndex={9001}>
-                    <Disclaimer visible={!!hoveredRampButton}>
-                      RAMP DISCLAIMER: Don't invest unless you're prepared to lose all the money you
-                      invest. This is a high-risk investment and you should not expect to be protected
-                      if something goes wrong.{' '}
-                      <a href="https://ramp.network/risk-warning" target="_blank" rel="noopener noreferrer">Take 2 minutes to learn more.</a>
-                    </Disclaimer>
-                  </MouseoverInfoPane>
-                </h4>
-                <ButtonRow>
-                  {suggestedAmounts.map((usdc, i) => (
-                    <BrightButton key={usdc} onClick={onClickCC(usdc)}>
-                      + <UserPrice price={usdc} priceToken={TOKEN.USDC} format={(fundsNeeded && i === 0) ? true : TOKEN_FORMAT.SHORT} />
-                    </BrightButton>
-                  ))}
-                </ButtonRow>
-
-                {/* TODO: start off collapsed */}
-                <Collapsible style={{ marginTop: 10 }}>
-                  <h4><span>Advanced Options</span><ChevronRightIcon /></h4>
-                  <ButtonRow>
-                    <BrightButton subtle onClick={onClickStarkgate}>
-                      <span>Bridge from L1</span>
-                      <ChevronRightIcon />
-                    </BrightButton>
-                    <BrightButton subtle onClick={onClickLayerswap}>
-                      <span>Swap on L2</span>
-                      <ChevronRightIcon />
-                    </BrightButton>
-                  </ButtonRow>
-                </Collapsible>
-              </FundingButtons>
-            )}
-
-            {walletId !== 'argentWebWallet' && (
-              <FundingButtons>
-                {appConfig.get('Starknet.chainId') === '0x534e5f5345504f4c4941' && (
-                  <EthFaucetButton
-                    onError={onFaucetError}
-                    onProcessing={(started) => setWaiting(!!started)} />
-                )}
-
-                <BrightButton onClick={onClickStarkgate}>
-                  <span>Bridge Funds from L1</span>
-                  <ChevronRightIcon />
+              <ButtonRow>
+                <BrightButton subtle onClick={onClickLayerswap}>
+                  <span>Swap L2 Funds</span> <ChevronRightIcon />
                 </BrightButton>
-
-                <ButtonRow>
-                  <BrightButton subtle onClick={onClickLayerswap}>
-                    <span>Swap L2 Funds</span> <ChevronRightIcon />
-                  </BrightButton>
-                  <BrightButton subtle onClick={onClickCC(suggestedAmounts[0])}>
-                    <span>Purchase L2 Funds</span> <ChevronRightIcon />
-                  </BrightButton>
-                </ButtonRow>
-              </FundingButtons>
-            )}
+                <BrightButton subtle onClick={onClickCC(suggestedAmounts[0])}>
+                  <span>Purchase L2 Funds</span> <ChevronRightIcon />
+                </BrightButton>
+              </ButtonRow>
+            </FundingButtons>
           </FundingBody>
         )}
         {ramping && (

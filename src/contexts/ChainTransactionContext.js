@@ -525,13 +525,6 @@ const customConfigs = {
     equalityTest: ['tokenAddress', 'tokenId'],
     noSystemCalls: true,
     isVirtual: true,
-  },
-  PurchaseStarterPack: {
-    repeatableSystemCall: 'PurchaseAdalian',
-    getRepeatTally: (vars) => Math.max(1, Math.floor(vars.crewmateTally)),
-    getNonsystemCalls: ({ swapCalls }) => swapCalls,
-    equalityTest: true,
-    isVirtual: true
   }
 };
 
@@ -561,7 +554,7 @@ export function ChainTransactionProvider({ children }) {
     logout,
     gasTokens,
     provider,
-    starknetSession,
+    sessionWallet,
     upgradeInsecureSession,
     walletAccount,
     walletId
@@ -644,7 +637,7 @@ export function ChainTransactionProvider({ children }) {
     };
 
     if (isDeployed && !nonce && !simulationEnabled && accountAddress && Number(accountAddress) !== 0) retrieveNonce();
-  }, [accountAddress, isDeployed, nonce, provider, simulationEnabled, starknetSession]);
+  }, [accountAddress, isDeployed, nonce, provider, simulationEnabled, sessionWallet]);
 
   // Temporary logging for nonces
   useEffect(() => console.log('NONCE', nonce || null), [nonce]);
@@ -711,7 +704,7 @@ export function ChainTransactionProvider({ children }) {
     gasTokens,
     isDeployed,
     nonce,
-    starknetSession
+    sessionWallet
   ]);
 
   const contracts = useMemo(() => {
@@ -977,7 +970,7 @@ export function ChainTransactionProvider({ children }) {
     gameplay.feesInSway,
     isDeployed,
     prependEventAutoresolve,
-    starknetSession,
+    sessionWallet,
     usdcPerEth
   ]);
 

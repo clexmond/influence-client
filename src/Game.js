@@ -24,11 +24,11 @@ import Interface from '~/game/Interface';
 import LandingPage from '~/game/Landing';
 import Referral from '~/game/Referral';
 import Scene from '~/game/Scene';
-import StripeListener from '~/game/StripeListener';
 import useSession from '~/hooks/useSession';
 import useServiceWorker from '~/hooks/useServiceWorker';
 import useStore from '~/hooks/useStore';
 import { getGraphicsDefaults } from '~/lib/graphics/quality';
+import { STARTER_PACK_CHECKOUT_PARAM } from '~/lib/starterPacks';
 import ScreensizeWarning from '~/ScreensizeWarning';
 import theme from '~/theme';
 
@@ -97,6 +97,15 @@ const LauncherRedirect = () => {
 
   // redirect to launcher if initial load and trying to link to /launcher/*
   useEffect(() => {
+    const checkoutSessionId = new URLSearchParams(history.location.search).get(STARTER_PACK_CHECKOUT_PARAM);
+    if (checkoutSessionId) {
+      dispatchLauncherPage('store', 'packs');
+      if (history.location.pathname !== '/') {
+        history.replace({ pathname: '/', search: history.location.search });
+      }
+      return;
+    }
+
     const parts = history.location.pathname.split('/').slice(1);
     const deeplink = parts[0] === 'launcher';
     if (deeplink || !DISABLE_LAUNCHER_LANDING) {
@@ -242,7 +251,6 @@ const Game = () => {
             <CrewProvider>
               <WebsocketProvider>
               <ChatListener />
-              <StripeListener />
               <Router>
                 <Referral />
                 <CrewSwitcher />

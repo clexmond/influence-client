@@ -91,7 +91,8 @@ export const Rule = styled.div`
 
 const SimulationRedirector = ({ simulationEnabled }) => {
   const history = useHistory();
-  const { accountAddress } = useSession(false);
+  const { accountAddress, walletCapabilities } = useSession(false);
+  const dispatchLauncherPage = useStore(s => s.dispatchLauncherPage);
   const simulationActions = useStore((s) => s.simulationActions);
 
   const [readyToRedirect, setReadyToRedirect] = useState();
@@ -105,10 +106,14 @@ const SimulationRedirector = ({ simulationEnabled }) => {
 
   useEffect(() => {
     if (readyToRedirect && !!accountAddress) {
-      history.push('/recruit/0');
+      if (walletCapabilities?.preferredForStarterPacks) {
+        dispatchLauncherPage('store', 'packs', { menuCollapsed: true });
+      } else {
+        history.push('/recruit/0');
+      }
       setReadyToRedirect(false);
     }
-  }, [accountAddress])
+  }, [accountAddress, dispatchLauncherPage, history, readyToRedirect, walletCapabilities?.preferredForStarterPacks])
 
   return null;
 };

@@ -129,7 +129,7 @@ const WelcomeSimulation = () => {
 
   const handleSkip = useCallback(() => {
     fireTrackingEvent('simulation', { step: 'skip-to-login' });
-    login({ webWallet: true });
+    login({ controller: true });
   }, []);
 
   if (!currentStep) return null;

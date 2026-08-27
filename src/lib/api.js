@@ -958,18 +958,28 @@ const api = {
     return response.data;
   },
 
-  getStripePayments: async () => {
-    const response = await instance.get(`/${apiVersion}/stripe/payments`);
+  getStarterPackProducts: async () => {
+    const response = await instance.get(`/${apiVersion}/starter-packs/products`);
     return response.data;
   },
 
-  getStripeProducts: async () => {
-    const response = await instance.get(`/${apiVersion}/stripe`);
+  createStarterPackCheckout: async (params) => {
+    const response = await instance.post(`/${apiVersion}/starter-packs/checkout`, params);
     return response.data;
   },
 
-  createStripePaymentIntent: async (sku) => {
-    const response = await instance.post(`/${apiVersion}/stripe/${sku}`);
+  getPendingStarterPackPurchase: async () => {
+    const response = await instance.get(`/${apiVersion}/starter-packs/pending`);
+    return response.data;
+  },
+
+  getStarterPackCheckout: async (checkoutSessionId) => {
+    const response = await instance.get(`/${apiVersion}/starter-packs/checkout/${checkoutSessionId}`);
+    return response.data;
+  },
+
+  submitStarterPackCustomization: async (params) => {
+    const response = await instance.post(`/${apiVersion}/starter-packs/customization`, params);
     return response.data;
   }
 };

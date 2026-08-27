@@ -8,6 +8,12 @@ import { Building, Entity, Lot } from '@influenceth/sdk';
 import constants from '~/lib/constants';
 import { getGraphicsDefaults } from '~/lib/graphics/quality';
 import { TOKEN } from '~/lib/priceUtils';
+import {
+  createStarterPackCheckoutState,
+  createStarterPackCustomizationDraft,
+  resizeStarterPackCustomizationDraft,
+  updateStarterPackCheckoutState
+} from '~/lib/starterPacks';
 import { safeBigInt } from '~/lib/utils';
 import SIMULATION_CONFIG from '~/simulation/simulationConfig';
 import { appConfig } from '~/appConfig';
@@ -98,6 +104,7 @@ const useStore = create(
   subscribeWithSelector(
     persist((set, get) => ({
         actionDialog: {},
+        launcherDialogOptions: null,
         launcherPage: null,
         launcherSubpage: null,
         openHudMenu: null,
@@ -166,6 +173,8 @@ const useStore = create(
 
         chatHistory: [],
         bridgeTransfers: {},
+        starterPackCheckout: null,
+        starterPackCustomizationDrafts: {},
 
         hasSeenIntroVideo: false,
         hiddenActionItems: [],
@@ -273,16 +282,19 @@ const useStore = create(
           state.actionDialog = { type, params };
         })),
 
-        dispatchLauncherPage: (page, subpage) => set(produce(state => {
+        dispatchLauncherPage: (page, subpage, dialogOptions = null) => set(produce(state => {
           if (['play', 'store', 'help', 'rewards', 'settings', 'inbox', 'bridge'].includes(page)) {
+            state.launcherDialogOptions = dialogOptions;
             state.launcherPage = page;
             state.launcherSubpage = subpage;
           }
           else if (page) {
+            state.launcherDialogOptions = null;
             state.launcherPage = 'play';
             state.launcherSubpage = null;
           }
           else {
+            state.launcherDialogOptions = null;
             state.launcherPage = null;
             state.launcherSubpage = null;
           }
@@ -540,6 +552,49 @@ const useStore = create(
           );
         })),
 
+        dispatchStarterPackCheckoutStarted: (purchase, update) => set(produce(state => {
+          state.starterPackCheckout = createStarterPackCheckoutState(purchase, update);
+        })),
+        dispatchStarterPackCheckoutUpdated: (purchase, update) => set(produce(state => {
+          state.starterPackCheckout = updateStarterPackCheckoutState(state.starterPackCheckout, purchase, update);
+        })),
+        dispatchStarterPackCheckoutCleared: () => set(produce(state => {
+          state.starterPackCheckout = null;
+        })),
+        dispatchStarterPackCustomizationDraftInitialized: (purchase) => set(produce(state => {
+          if (!purchase?.id) return;
+          if (!state.starterPackCustomizationDrafts) state.starterPackCustomizationDrafts = {};
+          const existingDraft = state.starterPackCustomizationDrafts[purchase.id];
+          state.starterPackCustomizationDrafts[purchase.id] = existingDraft
+            ? resizeStarterPackCustomizationDraft(existingDraft, purchase.requiredCrewmates)
+            : createStarterPackCustomizationDraft(purchase);
+        })),
+        dispatchStarterPackCustomizationDraftUpdated: (purchaseId, update) => set(produce(state => {
+          if (!purchaseId || !state.starterPackCustomizationDrafts?.[purchaseId]) return;
+          state.starterPackCustomizationDrafts[purchaseId] = {
+            ...state.starterPackCustomizationDrafts[purchaseId],
+            ...update,
+            updatedAt: Date.now()
+          };
+        })),
+        dispatchStarterPackCustomizationCrewmateUpdated: (purchaseId, index, update) => set(produce(state => {
+          const crewmate = state.starterPackCustomizationDrafts?.[purchaseId]?.crewmates?.[index];
+          if (!crewmate) return;
+          state.starterPackCustomizationDrafts[purchaseId].crewmates[index] = {
+            ...crewmate,
+            ...update
+          };
+          state.starterPackCustomizationDrafts[purchaseId].updatedAt = Date.now();
+        })),
+        dispatchStarterPackCustomizationDraftCleared: (purchaseId) => set(produce(state => {
+          if (!purchaseId || !state.starterPackCustomizationDrafts) return;
+          delete state.starterPackCustomizationDrafts[purchaseId];
+        })),
+        dispatchStarterPackStateReset: () => set(produce(state => {
+          state.starterPackCheckout = null;
+          state.starterPackCustomizationDrafts = {};
+        })),
+
         dispatchTimeOverride: (anchor, speed) => set((produce(state => {
           state.timeOverride = anchor ? { anchor, speed, ts: Date.now() } : null;
         }))),
@@ -573,6 +628,13 @@ const useStore = create(
 
         dispatchSimulationEnabled: (which) => set(produce(state => {
           state.simulationEnabled = which;
+        })),
+        dispatchSimulationReset: (enabled = true) => set(produce(state => {
+          state.simulationEnabled = enabled;
+          state.simulation = { ...simulationStateDefault };
+          state.launcherDialogOptions = null;
+          state.launcherPage = null;
+          state.launcherSubpage = null;
         })),
 
         dispatchSimulationStep: (step) => set(produce(state => {
@@ -868,7 +930,7 @@ const useStore = create(
         getPreferredUiCurrency: () => {
           const s = get();
           if ([TOKEN.ETH, TOKEN.USDC].includes(s.preferredUiCurrency)) return s.preferredUiCurrency;
-          else if (s.currentSession?.walletId && s.currentSession.walletId !== 'argentWebWallet') return TOKEN.ETH;
+          else if (s.currentSession?.walletId) return TOKEN.ETH;
           return TOKEN.USDC;
         },
 
@@ -902,7 +964,7 @@ const useStore = create(
 
     }), {
       name: STORE_NAME,
-      version: 8,
+      version: 9,
       migrate: (persistedState, oldVersion) => {
         const migrations = [
           (state, version) => {
@@ -949,6 +1011,13 @@ const useStore = create(
             }
             return state;
           },
+          (state, version) => {
+            if (version >= 9) return;
+            delete state.starterPackWalletIntent;
+            state.starterPackCheckout = null;
+            state.starterPackCustomizationDrafts = {};
+            return state;
+          },
         ];
 
         for (let i = 0; i < migrations.length; i++) {
@@ -974,6 +1043,7 @@ const useStore = create(
         'cutscene',
         'draggables',
         'hudMenuState',
+        'launcherDialogOptions',
         'lotLoader',
         'simulationActions',
         'timeOverride' // should this be in ClockContext?

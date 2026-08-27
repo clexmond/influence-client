@@ -26,7 +26,6 @@ import TriangleTip from '~/components/TriangleTip';
 import { CrewmateUserPrice } from '~/components/UserPrice';
 import ChainTransactionContext from '~/contexts/ChainTransactionContext';
 import FundingFlow from '~/game/launcher/store/FundingFlow';
-import { StarterPack } from '~/game/launcher/store/StarterPackSKU';
 import useBookSession, { bookIds, getBookCompletionImage } from '~/hooks/useBookSession';
 import useCrewManager from '~/hooks/actionManagers/useCrewManager';
 import useCrewContext from '~/hooks/useCrewContext';
@@ -37,6 +36,7 @@ import useSimulationEnabled from '~/hooks/useSimulationEnabled';
 import useStore from '~/hooks/useStore';
 import useWalletPurchasableBalances from '~/hooks/useWalletPurchasableBalances';
 import { useSwayBalance } from '~/hooks/useWalletTokenBalance';
+import { getRandomAdalianAppearance } from '~/lib/crewmateDesign';
 import formatters from '~/lib/formatters';
 import { TOKEN } from '~/lib/priceUtils';
 import { reactBool, safeBigInt } from '~/lib/utils';
@@ -543,6 +543,19 @@ const NameSuccess = styled(NameMessage)`
   color: ${p => p.theme.colors.success};
 `;
 
+const NameMessageSlot = styled.div`
+  flex: 0 0 32px;
+  height: 32px;
+`;
+
+const NameValidationMessage = ({ checkingName, nameError }) => (
+  <NameMessageSlot>
+    {checkingName && <NameLoading>Checking availability...</NameLoading>}
+    {!checkingName && nameError && <NameError><CloseIcon /> <span>{nameError}</span></NameError>}
+    {!checkingName && nameError === null && <NameSuccess><CheckIcon /> <span>Name is available</span></NameSuccess>}
+  </NameMessageSlot>
+);
+
 const RandomizeControls = styled(IconButton)`
   margin-right: 0;
   border: 0;
@@ -580,27 +593,6 @@ const PromptBody = styled.div`
     text-align: right;
   }
 `;
-const Selector = styled.div`
-  margin-bottom: 10px;
-  text-align: center;
-  & > div {
-    align-items: center;
-    color: white;
-    display: inline-flex;
-    flex-direction: row;
-    font-weight: bold;
-    margin: 0 auto;
-    text-transform: uppercase;
-    &:before, &:after {
-      content: "";
-      height: 0px;
-      border-bottom: 1px solid #333;
-      margin: 0 10px;
-      width: 100px;
-    }
-  }
-`;
-
 const Rule = styled.div`
   height: 0;
   border-bottom: 1px solid #333;
@@ -701,7 +693,7 @@ const SelectableClass = styled(SelectableTrait)`
   font-size: 48px;
 `;
 
-const mouseoverPaneProps = (visible, isEditor) => ({
+const mouseoverPaneProps = (visible, isEditor, zIndex) => ({
   css: css`
     padding: 0;
     pointer-events: ${visible ? 'auto' : 'none'};
@@ -709,29 +701,13 @@ const mouseoverPaneProps = (visible, isEditor) => ({
     ${isEditor ? `border-color: rgba(${theme.colors.mainRGB}, 0.5);` : ''}
   `,
   placement: 'top',
-  visible
+  visible,
+  zIndex
 });
 
 const onCloseDestination = `/crew`;
 
 const noop = () => {};
-
-const getRandomAdalianAppearance = () => {
-  const gender = Math.ceil(Math.random() * 2);
-  const faces = gender === 1 ? [0, 1, 3, 4, 5, 6, 7] : [0, 1, 2];
-  const hairs = gender === 1 ? [0, 1, 2, 3, 4, 5] : [0, 6, 7, 8, 9, 10, 11];
-  return {
-    gender,
-    body: (gender - 1) * 6 + Math.ceil(Math.random() * 6),
-    face: faces[Math.floor(Math.random() * faces.length)],
-    hair: hairs[Math.floor(Math.random() * hairs.length)],
-    hairColor: Math.ceil(Math.random() * 5),
-    // clothes: 31 + (crewClass - 1) * 2 + Math.ceil(Math.random() * 2),
-    clothesOffset: 31 + Math.ceil(Math.random() * 2),
-    head: 0,
-    item: 0
-  };
-};
 
 const PopperWrapper = (props) => {
   const [refEl, setRefEl] = useState();
@@ -830,16 +806,337 @@ const TraitSelector = ({ crewmate, currentTraits, onUpdateTraits, onClose, trait
   );
 };
 
+export const CrewmateDesigner = ({
+  appearanceOptionsLength = 1,
+  appearanceSelection = 0,
+  checkingName,
+  coverImage,
+  crewmate,
+  disableChanges,
+  finalizing,
+  footer,
+  name,
+  nameError,
+  nameInputKey,
+  namePrepopped,
+  onNameChange,
+  onRerollAppearance,
+  onRerollTraits,
+  onRollBackAppearance,
+  onRollForwardAppearance,
+  onUnlockTraits,
+  onUpdateClass,
+  onUpdateTraits,
+  pendingCrewmate,
+  popoverZIndex,
+  promptingTransaction,
+  selectedTraits,
+  traitTally,
+  traitsLocked
+}) => {
+  const hasCrewmate = !!crewmate;
+  const [animationComplete, setAnimationComplete] = useState();
+  const [hovered, setHovered] = useState();
+  const [toggling, setToggling] = useState();
+
+  useEffect(() => {
+    if (hasCrewmate) {
+      const to = setTimeout(() => {
+        setAnimationComplete(true);
+      }, 2500);
+      return () => {
+        if (to) clearTimeout(to);
+      }
+    }
+  }, [hasCrewmate]);
+
+  const traitObjects = useMemo(() => {
+    return (selectedTraits || []).map((id) => ({ id, ...Crewmate.TRAITS[id] }));
+  }, [selectedTraits]);
+
+  const classObjects = useMemo(() => {
+    return Object.values(Crewmate.CLASS_IDS).reduce((acc, id) => ({
+      ...acc,
+      [id]: {
+        id,
+        abilities: Object.values(Crewmate.ABILITY_TYPES)
+          .filter((a) => a.class === id)
+          .map((a) => <div key={a.name}>- {a.name}</div>),
+        ...Crewmate.getClass(id),
+      }
+    }), {});
+  }, []);
+
+  const handleUpdateClass = useCallback((newClass) => {
+    onUpdateClass(newClass);
+    setToggling();
+  }, [onUpdateClass]);
+
+  const handleUpdateTraits = useCallback((newTraits) => {
+    onUpdateTraits(newTraits);
+    setToggling();
+  }, [onUpdateTraits]);
+
+  if (!crewmate) return null;
+
+  return (
+    <>
+      <ImageryContainer src={coverImage}>
+        <div />
+        <MainContent>
+          <CenterColumn>
+            <CardWrapper>
+              <CardContainer>
+                <div>
+                  <CrewmateCard
+                    crewmate={crewmate}
+                    fontSize="25px"
+                    hideFooter
+                    hideIfNoName
+                    hideMask
+                    noWrapName
+                    useExplicitAppearance={reactBool(crewmate?.Crewmate?.coll === Crewmate.COLLECTION_IDS.ADALIAN)} />
+                </div>
+              </CardContainer>
+            </CardWrapper>
+
+            {!pendingCrewmate && (
+              <NameSection>
+                {crewmate._canRename && (
+                  <>
+                    <label>Name</label>
+                    <TextInput
+                      autoFocus
+                      disabled={promptingTransaction || finalizing}
+                      initialValue={name}
+                      key={nameInputKey}
+                      minlength={Name.TYPES[Entity.IDS.CREWMATE].min}
+                      maxlength={Name.TYPES[Entity.IDS.CREWMATE].max}
+                      pattern={Name.getTypeRegex(Entity.IDS.CREWMATE)}
+                      onChange={onNameChange}
+                      resetOnChange={namePrepopped}
+                      placeholder="Crewmate Name" />
+
+                    <NameValidationMessage checkingName={checkingName} nameError={nameError} />
+                  </>
+                )}
+
+                <div style={{ flex: 1 }} />
+
+                {crewmate._canRerollAppearance && (
+                  <RerollContainer>
+                    <RandomizeControls
+                      onClick={onRollBackAppearance}
+                      disabled={promptingTransaction || finalizing || appearanceSelection === 0}
+                      style={{ opacity: appearanceOptionsLength > 1 ? 1 : 0 }}>
+                      <UndoIcon />
+                    </RandomizeControls>
+
+                    <RandomizeButton
+                      disabled={promptingTransaction || finalizing}
+                      lessTransparent
+                      onClick={onRerollAppearance}
+                      style={{ width: 275 }}>
+                      Randomize Appearance
+                    </RandomizeButton>
+
+                    <RandomizeControls
+                      onClick={onRollForwardAppearance}
+                      disabled={promptingTransaction || finalizing || appearanceSelection === appearanceOptionsLength - 1}
+                      style={{ opacity: appearanceOptionsLength > 1 ? 1 : 0 }}>
+                      <RedoIcon />
+                    </RandomizeControls>
+                  </RerollContainer>
+                )}
+
+                <RerollContainer>
+                  {traitsLocked
+                    ? (
+                      <RandomizeButton
+                        disabled={promptingTransaction || finalizing}
+                        lessTransparent
+                        onClick={onUnlockTraits}
+                        style={{ width: 275 }}>
+                        Unlock Traits
+                      </RandomizeButton>
+                    )
+                    : (
+                      <RandomizeButton
+                        disabled={promptingTransaction || finalizing}
+                        lessTransparent
+                        onClick={onRerollTraits}
+                        style={{ width: 275 }}>
+                        Randomize Traits
+                      </RandomizeButton>
+                    )
+                  }
+                </RerollContainer>
+              </NameSection>
+            )}
+          </CenterColumn>
+
+          <Traits>
+            <TraitRow big>
+              <Trait side="left">
+                <div>
+                  <CollectionImage coll={crewmate.Crewmate.coll} />
+                </div>
+                <article>
+                  <h4>Collection</h4>
+                  <div>{Crewmate.getCollection(crewmate.Crewmate.coll)?.name}</div>
+                  <div style={{color: theme.colors.secondaryText}}>{Crewmate.getTitle(crewmate.Crewmate.title)?.name}</div>
+                </article>
+                <TipHolder>
+                  <TriangleTip strokeWidth="1" rotate="90" />
+                  <TipIcon side="left">
+                    <UnclickableIcon><LockedIcon /></UnclickableIcon>
+                  </TipIcon>
+                </TipHolder>
+              </Trait>
+
+              <TraitSpacer />
+
+              <PopperWrapper>
+                {(refEl, setRefEl) => (
+                  <>
+                    <Trait
+                      ref={animationComplete ? setRefEl : noop}
+                      onClick={(disableChanges || !crewmate._canReclass) ? noop : () => setToggling('class')}
+                      onMouseEnter={animationComplete ? () => setHovered('class') : noop}
+                      onMouseLeave={() => setHovered()}
+                      side="right"
+                      isClickable={!disableChanges && crewmate._canReclass}
+                      isToggling={toggling === 'class'}
+                      isEmpty={!crewmate.Crewmate.class}>
+                      <div>
+                        <CrewClassIcon crewClass={crewmate.Crewmate.class} />
+                      </div>
+                      <article>
+                        <h4>{crewmate.Crewmate.class ? 'Class' : 'Select Class'}</h4>
+                        <div>{classObjects[crewmate.Crewmate.class]?.name}</div>
+                      </article>
+                      <TipHolder>
+                        <TriangleTip strokeWidth="1" rotate="-90" />
+                        <TipIcon side="right">
+                          <ClickableIcon><RightArrowIcon /></ClickableIcon>
+                          <UnclickableIcon><LockedIcon /></UnclickableIcon>
+                        </TipIcon>
+                      </TipHolder>
+                    </Trait>
+
+                    <MouseoverInfoPane referenceEl={refEl} {...mouseoverPaneProps(hovered === 'class' && crewmate.Crewmate.class && !toggling, false, popoverZIndex)}>
+                      <MouseoverInfoContent
+                        title={classObjects[crewmate.Crewmate.class]?.name}
+                        description={(
+                          <>
+                            {classObjects[crewmate.Crewmate.class]?.description}
+
+                            <MouseoverSubtitle>{classObjects[crewmate.Crewmate.class]?.name} Bonuses</MouseoverSubtitle>
+                            {classObjects[crewmate.Crewmate.class]?.abilities}
+                          </>
+                        )}
+                      />
+                    </MouseoverInfoPane>
+
+                    <MouseoverInfoPane
+                      referenceEl={refEl}
+                      {...mouseoverPaneProps(toggling === 'class', true, popoverZIndex)}>
+                      <ClassSelector
+                        onClose={setToggling}
+                        classObjects={classObjects}
+                        crewmate={crewmate}
+                        onUpdateClass={handleUpdateClass} />
+                    </MouseoverInfoPane>
+                  </>
+                )}
+              </PopperWrapper>
+            </TraitRow>
+
+            {Array.from(Array(Math.ceil(traitTally / 2))).map((_, i) => {
+              return (
+                <TraitRow key={i}>
+                  {Array.from(Array(2)).map((_, j) => {
+                    const traitIndex = 2 * i + j;
+                    const hoverKey = traitIndex;
+                    const trait = traitObjects[traitIndex];
+                    const side = j === 0 ? 'left' : 'right';
+                    return (
+                      <Fragment key={j}>
+                        <PopperWrapper>
+                          {(refEl, setRefEl) => (
+                            <>
+                              <Trait
+                                ref={animationComplete ? setRefEl : noop}
+                                onClick={(disableChanges || !crewmate.Crewmate.class || traitIndex > selectedTraits?.length) ? noop : () => setToggling(hoverKey)}
+                                onMouseEnter={animationComplete ? () => setHovered(hoverKey) : noop}
+                                onMouseLeave={() => setHovered()}
+                                side={side}
+                                type={trait?.type}
+                                isClickable={!disableChanges && crewmate.Crewmate.class && traitIndex <= selectedTraits?.length}
+                                isEmpty={!trait}
+                                isToggling={toggling === hoverKey}
+                                isAtRisk={toggling === 'class' || toggling < traitIndex}>
+                                <div>
+                                  <CrewTraitIcon trait={trait?.id} type={trait?.type} hideFallback opaque />
+                                </div>
+                                <article>
+                                  <h4>{trait?.name}</h4>
+                                  {!trait?.name && crewmate.Crewmate.class && traitIndex === selectedTraits?.length && <h4>Select Trait</h4>}
+                                  <div>{trait?.type && (trait?.type === 'impactful' ? 'Impactful' : 'Cosmetic')}</div>
+                                </article>
+                                <TipHolder>
+                                  <TriangleTip strokeWidth="1" rotate={side === 'left' ? 90 : -90} />
+                                  <TipIcon side={side}>
+                                    <ClickableIcon>{side === 'left' ? <LeftArrowIcon /> : <RightArrowIcon />}</ClickableIcon>
+                                    <UnclickableIcon><LockedIcon /></UnclickableIcon>
+                                    <AtRiskIcon><CloseIcon /></AtRiskIcon>
+                                  </TipIcon>
+                                </TipHolder>
+                              </Trait>
+
+                              <MouseoverInfoPane referenceEl={refEl} {...mouseoverPaneProps(hovered === hoverKey && trait && !toggling, false, popoverZIndex)}>
+                                <MouseoverInfoContent title={trait?.name} description={formatters.crewmateTraitDescription(trait?.description)} />
+                              </MouseoverInfoPane>
+
+                              <MouseoverInfoPane
+                                referenceEl={refEl}
+                                {...mouseoverPaneProps(toggling === hoverKey, true, popoverZIndex)}>
+                                <TraitSelector
+                                  onClose={setToggling}
+                                  crewmate={crewmate}
+                                  currentTraits={traitObjects}
+                                  traitIndex={traitIndex}
+                                  onUpdateTraits={handleUpdateTraits} />
+                              </MouseoverInfoPane>
+                            </>
+                          )}
+                        </PopperWrapper>
+                        {side === 'left' && <TraitSpacer />}
+                      </Fragment>
+                    );
+                  })}
+                </TraitRow>
+              );
+            })}
+          </Traits>
+        </MainContent>
+      </ImageryContainer>
+      {footer}
+    </>
+  );
+};
+
 const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, crewmateId, locationId, pendingCrewmate }) => {
   const history = useHistory();
 
   const simulationEnabled = useSimulationEnabled();
   const dispatchSimulationState = useStore((s) => s.dispatchSimulationState);
   const dispatchCrewAssignmentRestart = useStore((s) => s.dispatchCrewAssignmentRestart);
+  const dispatchLauncherPage = useStore((s) => s.dispatchLauncherPage);
 
   const isNameValid = useNameAvailability({ id: crewmateId, label: Entity.IDS.CREWMATE });
   const { purchaseAndOrInitializeCrewmate } = useCrewManager();
-  const { crew, crewmateMap, adalianRecruits, arvadianRecruits, pendingTransactions } = useCrewContext();
+  const { crew, crewmateMap, adalianRecruits, arvadianRecruits } = useCrewContext();
   const { promptingTransaction } = useContext(ChainTransactionContext);
   const { data: priceConstants } = usePriceConstants();
   const priceHelper = usePriceHelper();
@@ -850,7 +1147,6 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
   const [confirmingUnlock, setConfirmingUnlock] = useState();
   const [isFunding, setIsFunding] = useState();
   const [hovered, setHovered] = useState();
-  const [isPurchasingPack, setIsPurchasingPack] = useState();
   const [packPromptDismissed, setPackPromptDismissed] = useState();
 
   const [appearanceOptions, setAppearanceOptions] = useState([]);
@@ -1001,21 +1297,15 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
     return 0;
   }, [crewmate?.Crewmate?.coll]);
 
-  useEffect(() => {
-    if (isPurchasingPack) setPackPromptDismissed(true);
-  }, [isPurchasingPack]);
-
-  const isPackPurchaseIsProcessing = useMemo(() => {
-    return !!(pendingTransactions || []).find(tx => tx.key === 'PurchaseStarterPack');
-  }, [pendingTransactions]);
-
   const shouldPromptForPack = useMemo(() => {
-    // always show prompt while processing (so can see "loading")
-    if (isPurchasingPack || isPackPurchaseIsProcessing) return true;
-
-    // else, show prompt when no sway and not using a credit (if not already dismissed)
     return !(swayBalance > 0n || !!crewmate?.id) && !packPromptDismissed;
-  }, [!!crewmate?.id, isPurchasingPack, packPromptDismissed, pendingTransactions, swayBalance]);
+  }, [!!crewmate?.id, packPromptDismissed, swayBalance]);
+
+  const openStarterPacks = useCallback(() => {
+    setPackPromptDismissed(true);
+    setConfirming(false);
+    dispatchLauncherPage('store', 'packs');
+  }, [dispatchLauncherPage]);
 
   // init appearance options as desired
   const originalSimulationState = useStore(s => s.simulation);
@@ -1319,9 +1609,7 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
                             resetOnChange={namePrepopped}
                             placeholder="Crewmate Name" />
 
-                          {checkingName && <NameLoading>Checking availability...</NameLoading>}
-                          {!checkingName && nameError && <NameError><CloseIcon /> <span>{nameError}</span></NameError>}
-                          {!checkingName && nameError === null && <NameSuccess><CheckIcon /> <span>Name is available</span></NameSuccess>}
+                          <NameValidationMessage checkingName={checkingName} nameError={nameError} />
                         </>
                       )}
 
@@ -1624,15 +1912,14 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
               <p style={{ fontSize: '18px', fontStyle: 'italic', fontWeight: 'bold', textAlign: 'center', opacity: 0.75 }}>
                 Starter Packs are specifically designed to be the most efficient way to get started in Adalia.
               </p>
-              <Selector><div>Select</div></Selector>
-              <div style={{ color: 'white', display: 'flex', flexDirection: 'row', marginBottom: 20 }}>
-                <StarterPack packLabel="intro" asButton setIsPurchasing={setIsPurchasingPack} style={{ marginRight: 15 }} />
-                <StarterPack packLabel="basic" asButton setIsPurchasing={setIsPurchasingPack} style={{ marginRight: 15 }} />
-                <StarterPack packLabel="advanced" asButton setIsPurchasing={setIsPurchasingPack} />
+              <div style={{ color: 'white', margin: '20px 0', textAlign: 'center' }}>
+                Starter Packs include crewmates and the early assets needed to begin play. Checkout and provisioning now happen through the Starter Packs store flow.
+                <div style={{ marginTop: 20 }}>
+                  <Button onClick={openStarterPacks}>Open Starter Packs</Button>
+                </div>
               </div>
             </PromptBody>
           )}
-          loading={isPurchasingPack || isPackPurchaseIsProcessing}
           onConfirm={() => {
             setPackPromptDismissed(true);
           }}

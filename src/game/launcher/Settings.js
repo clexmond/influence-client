@@ -371,13 +371,14 @@ const NotificationsPane = () => {
 };
 
 const GameplayPane = () => {
-  const { authenticated, shouldUseSessionKeys, starknetSession, upgradeToSessionKey, walletId } = useSession();
+  const { authenticated, gameplaySessionReady, prepareGameplaySession, shouldUseSessionKeys } = useSession();
   const { crew } = useCrewContext();
 
   const crewTutorials = useStore(s => s.crewTutorials);
   const gameplay = useStore(s => s.gameplay);
   const preferredUiCurrency = useStore(s => s.getPreferredUiCurrency());
   const toggleAutoswap = useStore(s => s.dispatchAutoswapEnabled);
+  const createAlert = useStore(s => s.dispatchAlertLogged);
   
   const dispatchActiveCrewsDisplaySet = useStore(s => s.dispatchActiveCrewsDisplaySet);
   const dispatchDismissCrewTutorial = useStore(s => s.dispatchDismissCrewTutorial);
@@ -411,8 +412,21 @@ const GameplayPane = () => {
 
   const toggleSessionKeys = useCallback(async (which) => {
     dispatchUseSessionsSet(which);
-    if (which !== false && !starknetSession && await shouldUseSessionKeys(true)) upgradeToSessionKey();
-  }, [starknetSession, upgradeToSessionKey]);
+    if (which !== false && !gameplaySessionReady && await shouldUseSessionKeys(true)) {
+      try {
+        await prepareGameplaySession(true);
+      } catch (e) {
+        console.warn(e);
+        dispatchUseSessionsSet(false);
+        createAlert({
+          type: 'GenericAlert',
+          level: 'warning',
+          data: { content: 'Gameplay session approval was not completed.' },
+          duration: 5000
+        });
+      }
+    }
+  }, [createAlert, dispatchUseSessionsSet, gameplaySessionReady, prepareGameplaySession, shouldUseSessionKeys]);
 
   return (
     <StyledSettings>
@@ -509,10 +523,10 @@ const GameplayPane = () => {
             </ControlGroup>
           </StyledDataReadout>
           {(gameplay.useSessions === null || gameplay.useSessions === undefined) && (
-            <HelperText>Use sessions with Argent Web Wallet only</HelperText>
+            <HelperText>Use sessions with Cartridge when available</HelperText>
           )}
           {gameplay.useSessions === true && (
-            <HelperText>Use sessions with ArgentX Smart Accounts and Argent Web Wallets</HelperText>
+            <HelperText>Use Cartridge sessions for supported gameplay transactions</HelperText>
           )}
           {gameplay.useSessions === false && (
             <HelperText>Never use sessions</HelperText>

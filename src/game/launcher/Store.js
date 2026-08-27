@@ -40,6 +40,7 @@ const Store = () => {
   const { data: priceConstants, isLoading } = usePriceConstants();
 
   const initialSubpage = useStore(s => s.launcherSubpage);
+  const initiallyCollapsed = useStore(s => !!s.launcherDialogOptions?.menuCollapsed);
 
   const initialSelection = useMemo(() => {
     // use specified starting page, or default (starter packs for new users, sway for existing)
@@ -65,9 +66,10 @@ const Store = () => {
     }))
   }, []);
 
-  if (!priceConstants?.ADALIAN_PURCHASE_PRICE) return isLoading ? <PageLoader /> : null;
+  if (isLoading && !priceConstants) return <PageLoader />;
   return (
     <LauncherDialog
+      initiallyCollapsed={initiallyCollapsed}
       panes={panes}
       preselect={initialSelection} />
   );
