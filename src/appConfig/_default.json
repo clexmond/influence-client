@@ -15,19 +15,25 @@
     "argent": "",
     "argentWebWallet": "",
     "avnu": "",
+    "banxa": "",
     "influence": "",
-    "ramp": "",
     "ClientId": {
       "google": "",
       "gtm": "",
       "layerswap": "",
-      "ramp": "",
       "walletConnect": "",
       "stripe": ""
     }
   },
   "ClientMedia": {
     "cid": "QmdD7MriPcqzJSC3vyUjq2Sifj5s2pEWLnfv4UxMJSRTjt"
+  },
+  "Privy": {
+    "appId": "",
+    "clientId": ""
+  },
+  "Banxa": {
+    "minFiat": 11
   },
   "Ethereum": {
     "chainId": "",
@@ -52,6 +58,7 @@
     "provider": "",
     "providerBackup": "",
     "paymaster": "",
+    "paymasterProxy": "",
     "Address": {
       "ethToken": "",
       "usdcToken": "",

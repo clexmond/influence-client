@@ -29,10 +29,36 @@ export class WalletConnectionError extends Error {
 }
 
 export const WALLET_STORAGE_KEYS = {
-  LAST_CONNECTED_WALLET: 'starknetLastConnectedWallet'
+  LAST_CONNECTED_WALLET: 'starknetLastConnectedWallet',
+  PENDING_AUTH_WALLET: 'starknetPendingAuthWallet'
+};
+
+const CARTRIDGE_NATIVE_CHAIN_IDS = new Set([
+  '0x534e5f4d41494e',
+  '0x534e5f5345504f4c4941'
+]);
+
+export const getCartridgeChainOptions = ({ chainId, rpcUrl }) => {
+  const options = { defaultChainId: chainId };
+
+  // Controller's native RPCs implement the session execution extensions used
+  // on Starknet. Only override the chain definition for custom networks.
+  if (!CARTRIDGE_NATIVE_CHAIN_IDS.has(chainId)) {
+    options.chains = [{ chainId, rpcUrl }];
+  }
+
+  return options;
 };
 
 export const walletCapabilities = {
+  [WALLET_IDS.PRIVY]: {
+    embeddedAccount: true,
+    preferredForStarterPacks: true,
+    requiresSponsoredTransactions: true,
+    supportsSessionKeys: false,
+    supportsSubsidies: true,
+    usesClientRawSigning: true
+  },
   [WALLET_IDS.CONTROLLER]: {
     embeddedAccount: true,
     preferredForStarterPacks: true,
@@ -54,6 +80,11 @@ export const walletCapabilities = {
 };
 
 export const walletRegistry = {
+  [WALLET_IDS.PRIVY]: {
+    id: WALLET_IDS.PRIVY,
+    label: 'Influence Account',
+    capabilities: walletCapabilities[WALLET_IDS.PRIVY]
+  },
   [WALLET_IDS.CONTROLLER]: {
     id: WALLET_IDS.CONTROLLER,
     label: 'Cartridge Controller',
@@ -72,10 +103,15 @@ export const walletRegistry = {
 };
 
 export const defaultWalletOrder = [
+  WALLET_IDS.PRIVY,
   WALLET_IDS.CONTROLLER,
   WALLET_IDS.ARGENT_X,
   WALLET_IDS.BRAAVOS
 ];
+
+export const getPrimaryNewPlayerLoginOptions = () => ({
+  [WALLET_IDS.PRIVY]: true
+});
 
 export const defaultEnabledConnectors = defaultWalletOrder.reduce((connectors, walletId) => {
   connectors[walletId] = true;
@@ -115,6 +151,21 @@ export const setStoredWalletId = (walletId) => {
 export const clearStoredWalletId = () => {
   if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(WALLET_STORAGE_KEYS.LAST_CONNECTED_WALLET);
+};
+
+export const getPendingAuthWalletId = () => {
+  if (typeof sessionStorage === 'undefined') return null;
+  return normalizeConnectorId(sessionStorage.getItem(WALLET_STORAGE_KEYS.PENDING_AUTH_WALLET));
+};
+
+export const setPendingAuthWalletId = (walletId) => {
+  if (typeof sessionStorage === 'undefined') return;
+  sessionStorage.setItem(WALLET_STORAGE_KEYS.PENDING_AUTH_WALLET, normalizeConnectorId(walletId));
+};
+
+export const clearPendingAuthWalletId = () => {
+  if (typeof sessionStorage === 'undefined') return;
+  sessionStorage.removeItem(WALLET_STORAGE_KEYS.PENDING_AUTH_WALLET);
 };
 
 export const getLoginWalletOptions = (lastWalletId) => {
@@ -287,9 +338,16 @@ class CartridgeConnector {
   }
 }
 
-export const createWalletConnectors = (enabledConnectors = defaultEnabledConnectors, { controllerOptions = {} } = {}) => {
+export const createWalletConnectors = (
+  enabledConnectors = defaultEnabledConnectors,
+  { controllerOptions = {}, privyConnector } = {}
+) => {
   const enabled = normalizeEnabledConnectors(enabledConnectors);
   const connectors = {};
+
+  if (enabled[WALLET_IDS.PRIVY] && privyConnector) {
+    connectors[WALLET_IDS.PRIVY] = privyConnector;
+  }
 
   if (enabled[WALLET_IDS.CONTROLLER]) {
     connectors[WALLET_IDS.CONTROLLER] = new CartridgeConnector({

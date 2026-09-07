@@ -1,5 +1,6 @@
 import React, { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import styled, { css, keyframes } from 'styled-components';
 import { Crewmate, Entity, Name } from '@influenceth/sdk';
 import { BiMinus as LockedIcon, BiRedo as RedoIcon, BiUndo as UndoIcon } from 'react-icons/bi';
@@ -18,14 +19,15 @@ import CrewmateCard from '~/components/CrewmateCard';
 import CrewClassIcon from '~/components/CrewClassIcon';
 import CrewTraitIcon from '~/components/CrewTraitIcon';
 import Details from '~/components/DetailsModal';
-import { CheckIcon, CloseIcon, LinkIcon, WalletIcon } from '~/components/Icons';
+import { CheckedIcon, CheckIcon, CloseIcon, LinkIcon, UncheckedIcon } from '~/components/Icons';
+import { CheckboxButton } from '~/components/filters/components';
 import IconButton from '~/components/IconButton';
 import MouseoverInfoPane from '~/components/MouseoverInfoPane';
 import TextInput from '~/components/TextInput';
 import TriangleTip from '~/components/TriangleTip';
-import { CrewmateUserPrice } from '~/components/UserPrice';
 import ChainTransactionContext from '~/contexts/ChainTransactionContext';
 import FundingFlow from '~/game/launcher/store/FundingFlow';
+import StripeEmbeddedCheckout, { stripePromise } from '~/game/launcher/store/components/StripeEmbeddedCheckout';
 import useBookSession, { bookIds, getBookCompletionImage } from '~/hooks/useBookSession';
 import useCrewManager from '~/hooks/actionManagers/useCrewManager';
 import useCrewContext from '~/hooks/useCrewContext';
@@ -33,12 +35,22 @@ import useNameAvailability from '~/hooks/useNameAvailability';
 import usePriceConstants from '~/hooks/usePriceConstants';
 import usePriceHelper from '~/hooks/usePriceHelper';
 import useSimulationEnabled from '~/hooks/useSimulationEnabled';
+import useSession from '~/hooks/useSession';
 import useStore from '~/hooks/useStore';
-import useWalletPurchasableBalances from '~/hooks/useWalletPurchasableBalances';
-import { useSwayBalance } from '~/hooks/useWalletTokenBalance';
+import { useUSDCBalance } from '~/hooks/useWalletTokenBalance';
+import api from '~/lib/api';
+import {
+  CREWMATE_PURCHASE_STATUSES,
+  buildCrewmatePurchaseGrantRequestFromCrewmate,
+  buildCrewmatePurchaseReturnUrl,
+  clearCrewmatePurchaseCheckoutSessionIdFromUrl,
+  getCrewmatePurchaseCheckoutSessionIdFromUrl,
+  isCrewmatePurchaseCheckoutActive,
+  normalizeCrewmatePurchaseProducts
+} from '~/lib/crewmatePurchases';
 import { getRandomAdalianAppearance } from '~/lib/crewmateDesign';
 import formatters from '~/lib/formatters';
-import { TOKEN } from '~/lib/priceUtils';
+import { getUsdcValue } from '~/lib/funding';
 import { reactBool, safeBigInt } from '~/lib/utils';
 import SIMULATION_CONFIG from '~/simulation/simulationConfig';
 import theme from '~/theme';
@@ -593,6 +605,24 @@ const PromptBody = styled.div`
     text-align: right;
   }
 `;
+
+const PurchaseAcknowledgement = styled.div`
+  align-items: flex-start;
+  color: #ddd;
+  cursor: ${p => p.theme.cursors.active};
+  display: flex;
+  font-size: 12px;
+  gap: 10px;
+  line-height: 1.35;
+  margin-top: 18px;
+
+  & ${CheckboxButton} {
+    color: ${p => p.$checked ? p.theme.colors.main : '#aaa'};
+    flex: 0 0 auto;
+    margin-right: 0;
+    opacity: ${p => p.$checked ? 1 : 0.65};
+  }
+`;
 const Rule = styled.div`
   height: 0;
   border-bottom: 1px solid #333;
@@ -707,6 +737,7 @@ const mouseoverPaneProps = (visible, isEditor, zIndex) => ({
 
 const onCloseDestination = `/crew`;
 
+const crewmatePurchaseCheckoutPollMs = 5000;
 const noop = () => {};
 
 const PopperWrapper = (props) => {
@@ -1128,11 +1159,13 @@ export const CrewmateDesigner = ({
 
 const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, crewmateId, locationId, pendingCrewmate }) => {
   const history = useHistory();
+  const queryClient = useQueryClient();
+  const { accountAddress, authenticated, login } = useSession();
 
   const simulationEnabled = useSimulationEnabled();
   const dispatchSimulationState = useStore((s) => s.dispatchSimulationState);
   const dispatchCrewAssignmentRestart = useStore((s) => s.dispatchCrewAssignmentRestart);
-  const dispatchLauncherPage = useStore((s) => s.dispatchLauncherPage);
+  const createAlert = useStore((s) => s.dispatchAlertLogged);
 
   const isNameValid = useNameAvailability({ id: crewmateId, label: Entity.IDS.CREWMATE });
   const { purchaseAndOrInitializeCrewmate } = useCrewManager();
@@ -1140,14 +1173,20 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
   const { promptingTransaction } = useContext(ChainTransactionContext);
   const { data: priceConstants } = usePriceConstants();
   const priceHelper = usePriceHelper();
-  const { data: swayBalance } = useSwayBalance();
-  const { data: wallet } = useWalletPurchasableBalances();
+  const { data: usdcBalance = 0n } = useUSDCBalance();
 
   const [confirming, setConfirming] = useState();
   const [confirmingUnlock, setConfirmingUnlock] = useState();
   const [isFunding, setIsFunding] = useState();
   const [hovered, setHovered] = useState();
-  const [packPromptDismissed, setPackPromptDismissed] = useState();
+  const [purchaseAcknowledged, setPurchaseAcknowledged] = useState(false);
+  const [returnedStripeCheckoutSessionId] = useState(getCrewmatePurchaseCheckoutSessionIdFromUrl);
+  const [stripeCheckoutSessionId, setStripeCheckoutSessionId] = useState(returnedStripeCheckoutSessionId);
+  const [stripeClientSecret, setStripeClientSecret] = useState();
+  const [stripeCheckoutOpen, setStripeCheckoutOpen] = useState(false);
+  const [stripeSubmitting, setStripeSubmitting] = useState(false);
+  const [awaitingStripePayment, setAwaitingStripePayment] = useState(false);
+  const submittedStripePurchaseRef = useRef();
 
   const [appearanceOptions, setAppearanceOptions] = useState([]);
   const [appearanceSelection, setAppearanceSelection] = useState();
@@ -1297,16 +1336,6 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
     return 0;
   }, [crewmate?.Crewmate?.coll]);
 
-  const shouldPromptForPack = useMemo(() => {
-    return !(swayBalance > 0n || !!crewmate?.id) && !packPromptDismissed;
-  }, [!!crewmate?.id, packPromptDismissed, swayBalance]);
-
-  const openStarterPacks = useCallback(() => {
-    setPackPromptDismissed(true);
-    setConfirming(false);
-    dispatchLauncherPage('store', 'packs');
-  }, [dispatchLauncherPage]);
-
   // init appearance options as desired
   const originalSimulationState = useStore(s => s.simulation);
   const [namePrepopped, setNamePrepopped] = useState();
@@ -1414,6 +1443,12 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
     setSelectedTraits(traits);
   }, [crewmate?.Crewmate?.class, selectedTraits, traitTally]);
 
+  const finalize = useCallback(() => {
+    setPurchaseAcknowledged(false);
+    setConfirming(false);
+    purchaseAndOrInitializeCrewmate({ crewmate });
+  }, [crewmate, purchaseAndOrInitializeCrewmate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const confirmFinalize = useCallback(async () => {
     if (simulationEnabled) {
       dispatchSimulationState('crewmate', { id: SIMULATION_CONFIG.crewmateId, name, appearance: crewmate?.Crewmate?.appearance });
@@ -1424,14 +1459,14 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
     // don't check name validity if could not rename (i.e. some names are to be grandfathered
     //  in from L1 since user cannot change them at this point anyway)
     if (!crewmate?._canRename || await isNameValid(name || crewmate?.Name?.name, crewmate?.id)) {
+      if (crewmate?.id) {
+        finalize();
+        return;
+      }
+      setPurchaseAcknowledged(false);
       setConfirming(true);
     }
-  }, [isNameValid, name, crewmate?.id, crewmate?._canRename, crewmate?.Crewmate?.appearance, crewmate?.Name?.name, simulationEnabled]);
-
-  const finalize = useCallback(() => {
-    setConfirming(false);
-    purchaseAndOrInitializeCrewmate({ crewmate });
-  }, [crewmate, purchaseAndOrInitializeCrewmate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [finalize, isNameValid, name, crewmate?.id, crewmate?._canRename, crewmate?.Crewmate?.appearance, crewmate?.Name?.name, simulationEnabled]);
 
   const handleBack = useCallback(() => {
     history.push(simulationEnabled ? '/' : backLocation);
@@ -1527,46 +1562,263 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
     return true;
   }, [name, selectedClass, selectedTraits?.length, traitTally, simulationEnabled]);
 
-  const confirmationProps = useMemo(() => {
-    if (crewmate?.id) {
-      return {
-        onConfirm: finalize,
-        confirmText: "Confirm"
-      }
+  useEffect(() => {
+    if (returnedStripeCheckoutSessionId) clearCrewmatePurchaseCheckoutSessionIdFromUrl();
+  }, [returnedStripeCheckoutSessionId]);
+
+  const { data: crewmatePurchaseProducts } = useQuery({
+    queryKey: ['crewmatePurchaseProducts'],
+    queryFn: async () => normalizeCrewmatePurchaseProducts((await api.getCrewmatePurchaseProducts()).products || [])
+  });
+
+  const crewmatePurchaseProduct = useMemo(() => crewmatePurchaseProducts?.[0] || null, [crewmatePurchaseProducts]);
+
+  const crewmatePurchaseCheckoutQuery = useQuery({
+    queryKey: ['crewmatePurchaseCheckout', stripeCheckoutSessionId],
+    queryFn: () => api.getCrewmatePurchaseCheckout(stripeCheckoutSessionId),
+    enabled: !!authenticated && !!stripeCheckoutSessionId,
+    refetchInterval: (query) => isCrewmatePurchaseCheckoutActive(query.state.data?.purchase?.status) ? crewmatePurchaseCheckoutPollMs : false
+  });
+
+  const stripePurchase = crewmatePurchaseCheckoutQuery.data?.purchase || null;
+
+  useEffect(() => {
+    if (crewmatePurchaseCheckoutQuery.data?.clientSecret) {
+      setStripeClientSecret(crewmatePurchaseCheckoutQuery.data.clientSecret);
+    }
+  }, [crewmatePurchaseCheckoutQuery.data?.clientSecret]);
+
+  useEffect(() => {
+    if (
+      stripePurchase?.status === CREWMATE_PURCHASE_STATUSES.CHECKOUT_CREATED &&
+      returnedStripeCheckoutSessionId === stripeCheckoutSessionId &&
+      crewmatePurchaseCheckoutQuery.data?.clientSecret &&
+      !stripeCheckoutOpen &&
+      !awaitingStripePayment
+    ) {
+      setStripeCheckoutOpen(true);
+    }
+  }, [
+    awaitingStripePayment,
+    crewmatePurchaseCheckoutQuery.data?.clientSecret,
+    returnedStripeCheckoutSessionId,
+    stripeCheckoutSessionId,
+    stripeCheckoutOpen,
+    stripePurchase?.status
+  ]);
+
+  useEffect(() => {
+    if (!stripePurchase?.id || !crewmate || submittedStripePurchaseRef.current === stripePurchase.id) return;
+    if (
+      stripePurchase.status !== CREWMATE_PURCHASE_STATUSES.PAID_PENDING_CUSTOMIZATION &&
+      !stripePurchase.canCustomize
+    ) return;
+
+    submittedStripePurchaseRef.current = stripePurchase.id;
+    setStripeSubmitting(true);
+    api.submitCrewmatePurchaseCustomization({
+      purchaseId: stripePurchase.id,
+      grantRequest: buildCrewmatePurchaseGrantRequestFromCrewmate(crewmate)
+    })
+      .then((response) => {
+        queryClient.setQueryData(['crewmatePurchaseCheckout', stripeCheckoutSessionId], (current = {}) => ({
+          ...current,
+          purchase: response.purchase
+        }));
+        queryClient.invalidateQueries({ queryKey: ['crewmatePurchaseCheckout', stripeCheckoutSessionId] });
+      })
+      .catch((e) => {
+        submittedStripePurchaseRef.current = undefined;
+        createAlert({
+          type: 'GenericAlert',
+          level: 'warning',
+          data: { content: e?.response?.data?.error || e.message || 'Unable to submit crewmate customization.' },
+          duration: 10000
+        });
+      })
+      .finally(() => {
+        setStripeSubmitting(false);
+      });
+  }, [
+    createAlert,
+    crewmate,
+    queryClient,
+    stripeCheckoutSessionId,
+    stripePurchase?.canCustomize,
+    stripePurchase?.id,
+    stripePurchase?.status
+  ]);
+
+  useEffect(() => {
+    if (!stripePurchase?.id || stripePurchase.status !== CREWMATE_PURCHASE_STATUSES.GRANT_CONFIRMED) return;
+
+    queryClient.invalidateQueries({ queryKey: ['entities', Entity.IDS.CREWMATE] });
+    queryClient.invalidateQueries({ queryKey: ['entity', Entity.IDS.CREW, crewId] });
+    setStripeCheckoutOpen(false);
+    setStripeClientSecret(undefined);
+    setStripeCheckoutSessionId(null);
+    setAwaitingStripePayment(false);
+    setConfirming(false);
+    createAlert({
+      type: 'GenericAlert',
+      level: 'success',
+      data: { content: 'Crewmate recruitment complete.' },
+      duration: 10000
+    });
+    history.push(`/crew/${stripePurchase.grantedCrew?.id || crewId}`);
+  }, [
+    createAlert,
+    crewId,
+    history,
+    queryClient,
+    stripePurchase?.grantedCrew?.id,
+    stripePurchase?.id,
+    stripePurchase?.status
+  ]);
+
+  const onStripeCheckout = useCallback(async () => {
+    if (!authenticated) {
+      login();
+      return;
     }
 
+    if (!accountAddress) {
+      createAlert({
+        type: 'GenericAlert',
+        level: 'warning',
+        data: { content: 'Wallet connection is not ready yet. Please try again in a moment.' },
+        duration: 5000
+      });
+      return;
+    }
+
+    if (!stripePromise) {
+      createAlert({
+        type: 'GenericAlert',
+        level: 'warning',
+        data: { content: 'Stripe Checkout is not configured for this environment.' },
+        duration: 10000
+      });
+      return;
+    }
+
+    if (!crewmatePurchaseProduct) {
+      createAlert({
+        type: 'GenericAlert',
+        level: 'warning',
+        data: { content: 'Card checkout is temporarily unavailable.' },
+        duration: 10000
+      });
+      return;
+    }
+
+    setStripeSubmitting(true);
+    try {
+      const response = await api.createCrewmatePurchaseCheckout({
+        productId: crewmatePurchaseProduct.productId,
+        recipient: accountAddress,
+        returnUrl: buildCrewmatePurchaseReturnUrl()
+      });
+
+      if (!response.checkoutSessionId || !response.clientSecret || !response.purchase) {
+        throw new Error('Stripe checkout response was incomplete.');
+      }
+
+      setStripeCheckoutSessionId(response.checkoutSessionId);
+      setStripeClientSecret(response.clientSecret);
+      setAwaitingStripePayment(false);
+      setStripeCheckoutOpen(true);
+    } catch (e) {
+      createAlert({
+        type: 'GenericAlert',
+        level: 'warning',
+        data: { content: e?.response?.data?.error || e.message || 'Unable to create Stripe checkout.' },
+        duration: 10000
+      });
+    } finally {
+      setStripeSubmitting(false);
+    }
+  }, [
+    accountAddress,
+    authenticated,
+    createAlert,
+    crewmatePurchaseProduct,
+    login
+  ]);
+
+  const openAdvancedFunding = useCallback((price) => {
+    setPurchaseAcknowledged(false);
+    setConfirming(false);
+    setIsFunding({
+      totalPrice: price,
+      onClose: () => setIsFunding(),
+      onFunded: () => finalize(),
+    });
+  }, [finalize]);
+
+  const onStripeCheckoutComplete = useCallback(() => {
+    setStripeCheckoutOpen(false);
+    setAwaitingStripePayment(true);
+    if (stripeCheckoutSessionId) {
+      queryClient.invalidateQueries({ queryKey: ['crewmatePurchaseCheckout', stripeCheckoutSessionId] });
+    }
+  }, [queryClient, stripeCheckoutSessionId]);
+
+  const confirmationProps = useMemo(() => {
     if (!priceConstants?.ADALIAN_PURCHASE_PRICE || !priceConstants?.ADALIAN_PURCHASE_TOKEN) return;
     const price = priceHelper.from(priceConstants.ADALIAN_PURCHASE_PRICE, priceConstants.ADALIAN_PURCHASE_TOKEN);
-    if (price.usdcValue > wallet?.combinedBalance?.to(TOKEN.USDC)) {
-      // if (appConfig.get('Starknet.chainId') === '0x534e5f5345504f4c4941' && ethClaimEnabled) {
-        // TODO: in sepolia, would be nice to remind there is a faucet *before* having to click through
-      // }
+    const targetUsdcValue = getUsdcValue(price);
+    const currentUsdcBalance = Number(usdcBalance || 0n);
+    const pendingStripePurchase = (
+      stripeSubmitting ||
+      awaitingStripePayment ||
+      [
+        CREWMATE_PURCHASE_STATUSES.GRANT_SUBMITTING,
+        CREWMATE_PURCHASE_STATUSES.GRANT_SUBMITTED
+      ].includes(stripePurchase?.status)
+    );
+
+    if (targetUsdcValue > currentUsdcBalance) {
       return {
-        onConfirm: () => {
-          setIsFunding({
-            totalPrice: price,
-            onClose: () => setIsFunding(),
-            onFunded: () => finalize(),
-          });
-        },
-        confirmText: <><WalletIcon /> <span>Fund Wallet</span></>
+        confirmButtonProps: { loading: pendingStripePurchase },
+        disabled: !purchaseAcknowledged || pendingStripePurchase,
+        mode: 'stripe',
+        onAdvancedFunding: () => openAdvancedFunding(price),
+        onConfirm: onStripeCheckout,
+        confirmText: pendingStripePurchase ? 'Processing...' : 'Checkout',
+        rejectButtonProps: { disabled: pendingStripePurchase }
       }
     }
 
     return {
+      confirmButtonProps: { loading: promptingTransaction },
+      disabled: !purchaseAcknowledged || promptingTransaction,
+      mode: 'crypto',
       onConfirm: finalize,
+      rejectButtonProps: { disabled: promptingTransaction },
       confirmText: (
         <>
-          Purchase Crewmate
-          {priceConstants && (
-            <span style={{ color: 'white', flex: 1, fontSize: '90%', textAlign: 'right', marginLeft: 15 }}>
-              <CrewmateUserPrice />
-            </span>
-          )}
+          {promptingTransaction ? 'Submitting...' : 'Purchase Crewmate'}
+          <span style={{ color: 'white', flex: 1, fontSize: '90%', textAlign: 'right', marginLeft: 15 }}>
+            $5.00
+          </span>
         </>
       )
     };
-  }, [crewmate, finalize, priceConstants, wallet]);
+  }, [
+    crewmate,
+    finalize,
+    onStripeCheckout,
+    openAdvancedFunding,
+    priceConstants,
+    priceHelper,
+    promptingTransaction,
+    purchaseAcknowledged,
+    awaitingStripePayment,
+    stripeSubmitting,
+    stripePurchase?.status,
+    usdcBalance
+  ]);
 
   if (!crewmate) return null;
   return (
@@ -1844,17 +2096,6 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
                     </div>
                   </CardContainer>
                 </CardWrapper>
-
-                {/*
-                <RecruitSection>
-                  {!appConfig.get('App.hideSocial') && (
-                    <TwitterButton onClick={shareOnTwitter}>
-                      <span>Share on Twitter</span>
-                      <TwitterIcon />
-                    </TwitterButton>
-                  )}
-                </RecruitSection>
-                */}
               </div>
             </>
           )}
@@ -1904,52 +2145,69 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
           onReject={() => setConfirmingUnlock(false)}
         />
       )}
-      {confirming && shouldPromptForPack && (
+      {confirming && (
         <ConfirmationDialog
-          title="Confirm Character Minting"
-          body={(
-            <PromptBody highlight style={{ padding: 0 }}>
-              <p style={{ fontSize: '18px', fontStyle: 'italic', fontWeight: 'bold', textAlign: 'center', opacity: 0.75 }}>
-                Starter Packs are specifically designed to be the most efficient way to get started in Adalia.
-              </p>
-              <div style={{ color: 'white', margin: '20px 0', textAlign: 'center' }}>
-                Starter Packs include crewmates and the early assets needed to begin play. Checkout and provisioning now happen through the Starter Packs store flow.
-                <div style={{ marginTop: 20 }}>
-                  <Button onClick={openStarterPacks}>Open Starter Packs</Button>
-                </div>
-              </div>
-            </PromptBody>
-          )}
-          onConfirm={() => {
-            setPackPromptDismissed(true);
-          }}
-          confirmText="Proceed with crewmate only"
-          onReject={() => setConfirming(false)}
-          style={{ width: 960 }}
-        />
-      )}
-      {confirming && !shouldPromptForPack && (
-        <ConfirmationDialog
-          title={`Confirm Character ${crewmate.id ? 'Details' : 'Minting'}`}
+          title={`Confirm Crewmate Creation`}
           body={(
             <PromptBody highlight>
-              The Crewmate you are about to recruit will be minted as a new digital asset
-              {crewmate.id
-                ? '.'
-                : <>, which currently costs <b><CrewmateUserPrice /></b> and helps to fund game development.</>
-              }
-              <br/><br/>
-              {crewmate.id ? 'You' : 'Once minted, you'}{' '}will be the sole owner of the Crewmate; nobody can
-              delete them or take them from you. They will be yours to keep or trade forever. All of their
-              stats, actions, skills, and other attributes will be stored in their unique on-chain history.
+              {!crewmate.id && confirmationProps?.mode === 'crypto' && (
+                <>
+                  Crewmate recruitment is <b>5.00 USDC</b>. To continue, you are authorizing your wallet to submit
+                  the purchase transaction for <b>5.00 USDC</b>.
+                </>
+              )}
+              {!crewmate.id && confirmationProps?.mode === 'stripe' && (
+                <>
+                  Crewmate recruitment is <b>$5.00</b>. Please continue to secure Stripe Checkout to complete crewmate
+                  recruitment.
+                </>
+              )}
+              <PurchaseAcknowledgement
+                $checked={purchaseAcknowledged}
+                aria-checked={purchaseAcknowledged}
+                onClick={() => setPurchaseAcknowledged((current) => !current)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setPurchaseAcknowledged((current) => !current);
+                  }
+                }}
+                role="checkbox"
+                tabIndex={0}>
+                <CheckboxButton
+                  checked={purchaseAcknowledged}
+                  tabIndex={-1}
+                  type="button">
+                  {purchaseAcknowledged ? <CheckedIcon /> : <UncheckedIcon />}
+                </CheckboxButton>
+                <span>
+                  I understand that fulfillment begins when I submit this crewmate recruitment, and once
+                  fulfillment begins I may lose any statutory withdrawal right for this digital content.
+                </span>
+              </PurchaseAcknowledgement>
+              {(awaitingStripePayment || stripeSubmitting || stripePurchase?.status === CREWMATE_PURCHASE_STATUSES.GRANT_SUBMITTED) && (
+                <>
+                  Finalizing crewmate recruitment...
+                </>
+              )}
             </PromptBody>
           )}
           {...confirmationProps}
-          onReject={() => setConfirming(false)}
+          disabled={confirmationProps?.disabled || stripeSubmitting}
+          onReject={() => {
+            setPurchaseAcknowledged(false);
+            setConfirming(false);
+          }}
           isTransaction
         />
       )}
       {isFunding && <FundingFlow {...isFunding} />}
+      {stripeCheckoutOpen && stripeClientSecret && stripePromise && (
+        <StripeEmbeddedCheckout
+          clientSecret={stripeClientSecret}
+          onClose={() => setStripeCheckoutOpen(false)}
+          onComplete={onStripeCheckoutComplete} />
+      )}
     </>
   );
 };

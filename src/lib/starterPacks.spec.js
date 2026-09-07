@@ -3,8 +3,11 @@ const { TextDecoder, TextEncoder } = require('util');
 global.TextDecoder = TextDecoder;
 global.TextEncoder = TextEncoder;
 
+const { Entity, Permission } = require('@influenceth/sdk');
+
 const {
   STARTER_PACK_STATUSES,
+  STARTER_LOT_LEASE_TERM,
   buildStarterPackGrantRequest,
   buildStarterPackReturnUrl,
   createDevStarterPackPurchase,
@@ -14,10 +17,65 @@ const {
   isDevStarterPackPurchase,
   isStarterPackCheckoutActive,
   isStarterPackCustomizationDraftComplete,
+  isStarterLotLease,
+  isStarterLotLeaseCandidate,
   normalizeStarterPackProducts,
   resizeStarterPackCustomizationDraft,
   shouldUsePendingStarterPackPurchase
 } = require('./starterPacks');
+
+const starterLeaseCandidate = {
+  asteroid: { id: 1, label: Entity.IDS.ASTEROID },
+  crew: {
+    id: 10,
+    label: Entity.IDS.CREW,
+    StarterPack: { valid: true, lotAllowance: 2 }
+  },
+  lot: { id: 20, label: Entity.IDS.LOT },
+  permission: Permission.IDS.USE_LOT
+};
+
+test('recognizes an available starter lot lease for the current starter pack crew', () => {
+  expect(isStarterLotLeaseCandidate(starterLeaseCandidate)).toBe(true);
+  expect(isStarterLotLease({
+    ...starterLeaseCandidate,
+    term: STARTER_LOT_LEASE_TERM
+  })).toBe(true);
+});
+
+test('requires an active indexed starter pack with remaining lot allowance', () => {
+  expect(isStarterLotLeaseCandidate({
+    ...starterLeaseCandidate,
+    crew: { ...starterLeaseCandidate.crew, StarterPack: undefined }
+  })).toBe(false);
+  expect(isStarterLotLeaseCandidate({
+    ...starterLeaseCandidate,
+    crew: { ...starterLeaseCandidate.crew, StarterPack: { valid: false, lotAllowance: 2 } }
+  })).toBe(false);
+  expect(isStarterLotLeaseCandidate({
+    ...starterLeaseCandidate,
+    crew: { ...starterLeaseCandidate.crew, StarterPack: { valid: true, lotAllowance: 0 } }
+  })).toBe(false);
+});
+
+test('rejects non-Adalia, occupied, and overlong starter lot leases', () => {
+  expect(isStarterLotLeaseCandidate({
+    ...starterLeaseCandidate,
+    asteroid: { ...starterLeaseCandidate.asteroid, id: 2 }
+  })).toBe(false);
+  expect(isStarterLotLeaseCandidate({
+    ...starterLeaseCandidate,
+    lot: { ...starterLeaseCandidate.lot, building: { id: 1 } }
+  })).toBe(false);
+  expect(isStarterLotLeaseCandidate({
+    ...starterLeaseCandidate,
+    lot: { ...starterLeaseCandidate.lot, surfaceShip: { id: 1 } }
+  })).toBe(false);
+  expect(isStarterLotLease({
+    ...starterLeaseCandidate,
+    term: STARTER_LOT_LEASE_TERM + 1
+  })).toBe(false);
+});
 
 test('builds a Stripe return URL with the literal Checkout session placeholder', () => {
   expect(buildStarterPackReturnUrl('https://client.example/launcher?foo=bar')).toBe(

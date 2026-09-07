@@ -13,6 +13,7 @@ import { CoachmarkProvider } from '~/contexts/CoachmarkContext';
 import { CrewProvider } from './contexts/CrewContext';
 import { ChainTransactionProvider } from '~/contexts/ChainTransactionContext';
 import { DevToolProvider } from '~/contexts/DevToolContext';
+import { PrivyWalletProvider } from '~/contexts/PrivyWalletContext';
 import { ScreensizeProvider } from '~/contexts/ScreensizeContext';
 import { SessionProvider } from '~/contexts/SessionContext';
 import { SyncedTimeProvider } from '~/contexts/SyncedTimeContext';
@@ -20,6 +21,7 @@ import WagmiContextProvider from '~/contexts/WagmiContext';
 import { WebsocketProvider } from '~/contexts/WebsocketContext';
 import Audio from '~/game/Audio';
 import ChatListener from '~/game/ChatListener';
+import FundingIntentMonitor from '~/game/FundingIntentMonitor';
 import Interface from '~/game/Interface';
 import LandingPage from '~/game/Landing';
 import Referral from '~/game/Referral';
@@ -247,13 +249,15 @@ const Game = () => {
       {isInstalling && !updateNeeded && <FullpageInterstitial message={`${loadingMessage}...`} />}
       {(!isInstalling || updateNeeded) && (
         <WagmiContextProvider>
-          <SessionProvider>
-            <CrewProvider>
+          <PrivyWalletProvider>
+            <SessionProvider>
+              <CrewProvider>
               <WebsocketProvider>
               <ChatListener />
               <Router>
                 <Referral />
                 <CrewSwitcher />
+                <FundingIntentMonitor />
                 <Switch>
 
                   {/* for socialmedia links that need to pull opengraph tags (will redirect to discord or main app) */}
@@ -304,8 +308,9 @@ const Game = () => {
                 </Switch>
               </Router>
               </WebsocketProvider>
-            </CrewProvider>
-          </SessionProvider>
+              </CrewProvider>
+            </SessionProvider>
+          </PrivyWalletProvider>
         </WagmiContextProvider>
       )}
     </>

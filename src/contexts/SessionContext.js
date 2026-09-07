@@ -7,7 +7,9 @@ import { appConfig } from '~/appConfig';
 import Reconnecting from '~/components/Reconnecting';
 import api from '~/lib/api';
 import { AUTH_PHASES, getAuthPhaseLabel } from '~/lib/authFlow';
+import { usePrivyWallet } from '~/contexts/PrivyWalletContext';
 import { getLoginSessionVerificationHashes, getLoginTypedData, getLoginVerificationParams } from '~/lib/loginTypedData';
+import { createAuthenticatedPaymasterRpc } from '~/lib/paymaster';
 import { areChainsEqual, fireTrackingEvent, resolveChainId } from '~/lib/utils';
 import {
   createWalletConnectors,
@@ -15,14 +17,18 @@ import {
   getSelectedConnectorId,
   getWalletCapabilities,
   getWalletLabel,
+  getPendingAuthWalletId,
   getStoredWalletId,
+  getCartridgeChainOptions,
   normalizeConnectorId,
   normalizeEnabledConnectors,
   WALLET_IDS,
   WALLET_ERROR_CODES,
+  clearPendingAuthWalletId,
   clearStoredWalletId,
   createWalletConnectionError,
   getLoginWalletOptions,
+  setPendingAuthWalletId,
   setStoredWalletId
 } from '~/lib/wallets';
 import { allowedMethods, buildGameplaySessionPolicies } from '~/lib/walletPolicies';
@@ -156,7 +162,9 @@ const withManualWalletCancellation = async (walletPromise, connectorId, options)
 };
 
 const withManualWalletGuard = async (walletPromise, connectorId) => {
-  if (normalizeConnectorId(connectorId) === WALLET_IDS.CONTROLLER) return walletPromise;
+  if ([WALLET_IDS.CONTROLLER, WALLET_IDS.PRIVY].includes(normalizeConnectorId(connectorId))) {
+    return walletPromise;
+  }
   return withManualWalletCancellation(walletPromise, connectorId, { cancelOnFocus: false });
 };
 
@@ -191,6 +199,7 @@ const SessionContext = createContext();
 export function SessionProvider({ children }) {
   const queryClient = useQueryClient();
   const createAlert = useStore(s => s.dispatchAlertLogged);
+  const { connector: privyConnector } = usePrivyWallet();
 
   const currentSession = useStore(s => s.currentSession);
   const gameplay = useStore(s => s.gameplay);
@@ -214,6 +223,7 @@ export function SessionProvider({ children }) {
   const [connectedWalletId, setConnectedWalletId] = useState();
   const [connectedConnector, setConnectedConnector] = useState();
   const [walletAccount, setWalletAccount] = useState();
+  const [accountDeploymentData, setAccountDeploymentData] = useState();
   const [gameplaySessionReady, setGameplaySessionReady] = useState(false);
 
   const [paymasterTokens, setPaymasterTokens] = useState([]);
@@ -236,25 +246,34 @@ export function SessionProvider({ children }) {
 
     return new RpcProvider({ nodeUrl });
   }, []);
+  const privyPaymaster = useMemo(() => {
+    const nodeUrl = appConfig.get('Starknet.paymasterProxy');
+    return nodeUrl ? createAuthenticatedPaymasterRpc({ nodeUrl }) : null;
+  }, []);
 
   const gameplaySessionPolicies = useMemo(() => buildGameplaySessionPolicies(), []);
 
   const getConnectors = useCallback((enabledConnectors = defaultEnabledConnectors) => {
     return createWalletConnectors(enabledConnectors, {
       controllerOptions: {
-        chains: [{
+        ...getCartridgeChainOptions({
           chainId: appConfig.get('Starknet.chainId'),
           rpcUrl: appConfig.get('Starknet.provider')
-        }],
-        defaultChainId: appConfig.get('Starknet.chainId'),
+        }),
         errorDisplayMode: 'notification',
         policies: gameplaySessionPolicies
-      }
+      },
+      privyConnector
     });
-  }, [gameplaySessionPolicies]);
+  }, [gameplaySessionPolicies, privyConnector]);
 
-  const connectConnector = useCallback(async (connector, { auto = false, connectorId } = {}) => {
-    const connectPromise = connector.connect({ auto });
+  const connectConnector = useCallback(async (connector, { auto = false, connectorId, resumeAuth = false } = {}) => {
+    const connectPromise = connector.connect({
+      auto,
+      paymaster: privyPaymaster,
+      provider,
+      resumeAuth
+    });
     const connectorData = auto
       ? await connectPromise
       : await withManualWalletGuard(connectPromise, connectorId);
@@ -263,10 +282,10 @@ export function SessionProvider({ children }) {
       connectorData,
       wallet: connector.wallet
     };
-  }, []);
+  }, [privyPaymaster, provider]);
 
   // Login entry point, starts by connecting to wallet provider
-  const connect = useCallback(async (auto = false, enabledConnectors = defaultEnabledConnectors) => {
+  const connect = useCallback(async (auto = false, enabledConnectors = defaultEnabledConnectors, { resumeAuth = false } = {}) => {
     enabledConnectors = normalizeEnabledConnectors(enabledConnectors);
     const authFlowId = ++authFlowRef.current;
 
@@ -294,13 +313,16 @@ export function SessionProvider({ children }) {
       }
 
       setError();
+      if (!auto && selectedConnectorId === WALLET_IDS.PRIVY) {
+        setPendingAuthWalletId(selectedConnectorId);
+      }
       setConnecting(true);
       setAuthPhase(auto ? AUTH_PHASES.RECONNECTING_WALLET : AUTH_PHASES.CONNECTING_WALLET);
       let connectorData;
       let wallet;
       for (let i = 0; i < (auto ? silentReconnectAttempts : 1); i++) {
         try {
-          ({ connectorData, wallet } = await connectConnector(selectedConnector, { auto, connectorId: selectedConnectorId }));
+          ({ connectorData, wallet } = await connectConnector(selectedConnector, { auto, connectorId: selectedConnectorId, resumeAuth }));
           if (authFlowId !== authFlowRef.current) return;
           if (!auto || hasWalletConnection({ connectorData, wallet }) || i === silentReconnectAttempts - 1) break;
           await wait(silentReconnectRetryDelay);
@@ -349,7 +371,7 @@ export function SessionProvider({ children }) {
           });
         }
 
-        const newAccount = await WalletAccount.connect(
+        const newAccount = connectorData.walletAccount || await WalletAccount.connect(
           provider,
           wallet,
           undefined,
@@ -357,15 +379,24 @@ export function SessionProvider({ children }) {
         );
         if (authFlowId !== authFlowRef.current) return;
 
-        setPaymasterTokens(await newAccount.paymaster?.getSupportedTokens?.() || []);
+        const capabilities = getWalletCapabilities(walletId);
+        setPaymasterTokens(capabilities.requiresSponsoredTransactions
+          ? []
+          : await newAccount.paymaster?.getSupportedTokens?.() || []);
         if (authFlowId !== authFlowRef.current) return;
 
         setWalletAccount(newAccount);
-        setGameplaySessionReady(!!getWalletCapabilities(walletId).supportsSessionKeys);
+        setAccountDeploymentData(connectorData.deploymentData);
+        setGameplaySessionReady(!!capabilities.supportsSessionKeys);
 
+        clearPendingAuthWalletId();
         setStoredWalletId(walletId);
         setStatus(STATUSES.CONNECTED);
       } else if (auto) {
+        setAuthPhase(AUTH_PHASES.IDLE);
+        setStatus(getAuthenticatedStatus(currentSession));
+      } else if (resumeAuth) {
+        clearPendingAuthWalletId();
         setAuthPhase(AUTH_PHASES.IDLE);
         setStatus(getAuthenticatedStatus(currentSession));
       } else if (!auto) {
@@ -392,11 +423,13 @@ export function SessionProvider({ children }) {
       }
 
       else if (isLoginCancelledError(e)) {
+        clearPendingAuthWalletId();
         setAuthPhase(AUTH_PHASES.IDLE);
         setStatus(getAuthenticatedStatus(currentSession));
       }
 
       else if (!auto && e.message !== 'User rejected request') {
+        clearPendingAuthWalletId();
         setAuthPhase(AUTH_PHASES.FAILED);
         setError(e);
       }
@@ -411,6 +444,7 @@ export function SessionProvider({ children }) {
     setConnectedWalletId();
     setConnectedConnector();
     setWalletAccount();
+    setAccountDeploymentData();
     setPaymasterTokens([]);
     setGameplaySessionReady(false);
   }, []);
@@ -422,8 +456,18 @@ export function SessionProvider({ children }) {
     setError();
     setAuthPhase(AUTH_PHASES.IDLE);
     setStatus(STATUSES.DISCONNECTED);
+    clearPendingAuthWalletId();
     clearWalletConnection();
   }, [clearWalletConnection]);
+
+  const getDisconnectConnector = useCallback(() => {
+    if (connectedConnector) return connectedConnector;
+
+    const walletId = normalizeConnectorId(connectedWalletId || currentSession?.walletId || getStoredWalletId());
+    if (!walletId) return null;
+
+    return getConnectors({ [walletId]: true })[walletId] || null;
+  }, [connectedConnector, connectedWalletId, currentSession?.walletId, getConnectors]);
 
   // Disconnect from the wallet provider and suspend session (don't fully logout)
   const disconnect = useCallback(() => {
@@ -435,19 +479,19 @@ export function SessionProvider({ children }) {
 
   // End / delete session, disconnect wallet and forget last wallet provider (full reset)
   const logout = useCallback(async () => {
-    const connector = connectedConnector;
+    const connector = getDisconnectConnector();
     resettingWalletRef.current = true;
-    dispatchSessionEnded();
-    resetAuthFlowState();
-    clearStoredWalletId();
     try {
       await connector?.disconnect?.();
     } catch (e) {
       console.warn(e);
     } finally {
+      dispatchSessionEnded();
+      resetAuthFlowState();
+      clearStoredWalletId();
       resettingWalletRef.current = false;
     }
-  }, [ connectedConnector, dispatchSessionEnded, resetAuthFlowState ]);
+  }, [ dispatchSessionEnded, getDisconnectConnector, resetAuthFlowState ]);
 
   const disconnectWalletOnly = useCallback(() => {
     resettingWalletRef.current = true;
@@ -721,6 +765,10 @@ export function SessionProvider({ children }) {
         setReadyForChildren(true);
       } else if (currentSession?.walletId) {
         connect(true).finally(() => setReadyForChildren(true));
+      } else if (getPendingAuthWalletId()) {
+        const pendingWalletId = getPendingAuthWalletId();
+        connect(false, { [pendingWalletId]: true }, { resumeAuth: true })
+          .finally(() => setReadyForChildren(true));
       } else {
         setReadyForChildren(true);
       }
@@ -845,6 +893,7 @@ export function SessionProvider({ children }) {
       },
       logout,
       accountAddress: authenticated ? currentSession?.accountAddress : null,
+      accountDeploymentData: authenticated ? accountDeploymentData : null,
       allowedMethods,
       authenticated,
       authenticating: [STATUSES.AUTHENTICATING, STATUSES.CONNECTING].includes(status),

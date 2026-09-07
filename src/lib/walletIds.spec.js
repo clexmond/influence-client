@@ -11,6 +11,7 @@ test('normalizes Cartridge aliases to the canonical controller ID', () => {
 });
 
 test('preserves supported extension wallet IDs', () => {
+  expect(normalizeConnectorId(WALLET_IDS.PRIVY)).toBe(WALLET_IDS.PRIVY);
   expect(normalizeConnectorId(WALLET_IDS.ARGENT_X)).toBe(WALLET_IDS.ARGENT_X);
   expect(normalizeConnectorId(WALLET_IDS.BRAAVOS)).toBe(WALLET_IDS.BRAAVOS);
 });

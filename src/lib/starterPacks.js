@@ -1,4 +1,4 @@
-import { Crewmate, Entity } from '@influenceth/sdk';
+import { Crewmate, Entity, Permission } from '@influenceth/sdk';
 import { getRandomAdalianAppearance } from './crewmateDesign';
 
 export const STARTER_PACK_STATUSES = {
@@ -15,6 +15,25 @@ export const STRIPE_CHECKOUT_SESSION_TEMPLATE = '{CHECKOUT_SESSION_ID}';
 export const DEV_STARTER_PACK_PURCHASE_PREFIX = 'dev_starter_pack_';
 
 export const barebonesCrewmateAppearance = '0x1200010000000000041';
+
+// Must stay aligned with STARTER_LOT_TERM in AcceptPrepaidAgreement.
+export const STARTER_LOT_LEASE_TERM = 2628000;
+
+export const isStarterLotLeaseCandidate = ({ asteroid, crew, lot, permission }) => (
+  crew?.StarterPack?.valid === true
+  && Number(crew.StarterPack.lotAllowance) > 0
+  && Number(asteroid?.id) === 1
+  && Number(lot?.label) === Entity.IDS.LOT
+  && Number(permission) === Permission.IDS.USE_LOT
+  && !lot?.building
+  && !lot?.surfaceShip
+);
+
+export const isStarterLotLease = ({ term, ...candidate }) => (
+  isStarterLotLeaseCandidate(candidate)
+  && Number(term) > 0
+  && Number(term) <= STARTER_LOT_LEASE_TERM
+);
 
 const starterRestrictionSeconds = 14 * 24 * 60 * 60;
 const defaultStation = { label: Entity.IDS.BUILDING, id: 1 };

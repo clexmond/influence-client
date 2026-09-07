@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 
 import { appConfig } from '~/appConfig';
-import BrightButton from '~/components/BrightButton';
+import Button from '~/components/ButtonAlt';
 import IconButton from '~/components/IconButton';
 import { CloseIcon } from '~/components/Icons';
 import Dialog from '~/components/Dialog';
@@ -103,7 +103,7 @@ const BridgeModalDialog = ({ onClose }) => {
             </div>
           </InnerContainer>
           <ButtonContainer>
-            <BrightButton onClick={openBridge}>Open the L1/L2 Bridge</BrightButton>
+            <Button onClick={openBridge}>Open the L1/L2 Bridge</Button>
           </ButtonContainer>
         </ContentBody>
       </Container>

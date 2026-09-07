@@ -49,6 +49,16 @@ const addDataUriFileLoader = () => config => {
   return config;
 };
 
+const addJsonImportAttributesCompatibility = () => config => {
+  const loaders = config.module.rules.find(rule => Array.isArray(rule.oneOf)).oneOf;
+  loaders.unshift({
+    test: /node_modules\/(?:@privy-io\/react-auth\/node_modules\/)?@base-org\/account\/dist\/core\/constants\.js$/,
+    use: [path.resolve(__dirname, 'src/compat/json-import-attributes-loader.js')]
+  });
+
+  return config;
+};
+
 const addSVGR = () => config => {
   const loaders = config.module.rules.find(rule => Array.isArray(rule.oneOf)).oneOf;
   loaders.unshift({
@@ -85,9 +95,7 @@ const addCompatibilityAliases = () => config => {
   return config;
 };
 
-patchNpmModules = () => config => {
-  const loaders = config.module.rules.find(rule => Array.isArray(rule.oneOf)).oneOf;
-
+const patchNpmModules = () => config => {
   // NOTE: this is entirely for three's GLTFExporter
   // loaders.unshift({
   //   test: /\.js$/,
@@ -119,5 +127,6 @@ module.exports = override(
   addCompatibilityAliases(),
   addGlslifyLoader(),
   addDataUriFileLoader(),
+  addJsonImportAttributesCompatibility(),
   addSVGR()
 );

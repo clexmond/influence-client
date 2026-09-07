@@ -43,9 +43,10 @@ const useWalletPurchasableBalances = (overrideAccount) => {
     return true;
   }, [gasTokens, priceHelper, strkBalance, swayBalance]);
 
-  const [usdcGasReserveBalance, ethGasReserveBalance] = useMemo(() => {
+  const [usdcGasReserveBalance, ethGasReserveBalance, strkGasReserveBalance] = useMemo(() => {
     let usdcReserve = priceHelper.from(0n, TOKEN.USDC);
     let ethReserve = priceHelper.from(0n, TOKEN.ETH);
+    let strkReserve = priceHelper.from(0n, TOKEN.STRK);
     if (maintainGasReserve) {
       if (gasTokens?.includes(TOKEN.USDC)) {
         usdcReserve = priceHelper.from((usdcBalance < GAS_BUFFER_VALUE_USDC ? usdcBalance : GAS_BUFFER_VALUE_USDC), TOKEN.USDC);
@@ -54,22 +55,27 @@ const useWalletPurchasableBalances = (overrideAccount) => {
         const ethValueInUSDC = Math.floor(priceHelper.from(ethBalance, TOKEN.ETH)?.usdcValue);
         ethReserve = priceHelper.from((ethValueInUSDC < GAS_BUFFER_VALUE_USDC ? ethValueInUSDC : GAS_BUFFER_VALUE_USDC), TOKEN.USDC);
       }
+      if (gasTokens?.includes(TOKEN.STRK) && !(usdcReserve?.usdcValue > 0) && !(ethReserve?.usdcValue > 0)) {
+        const strkValueInUSDC = Math.floor(priceHelper.from(strkBalance, TOKEN.STRK)?.usdcValue);
+        strkReserve = priceHelper.from((strkValueInUSDC < GAS_BUFFER_VALUE_USDC ? strkValueInUSDC : GAS_BUFFER_VALUE_USDC), TOKEN.USDC);
+      }
     }
-    return [usdcReserve, ethReserve];
-  }, [maintainGasReserve, gasTokens, ethBalance, usdcBalance, priceHelper]);
+    return [usdcReserve, ethReserve, strkReserve];
+  }, [maintainGasReserve, gasTokens, ethBalance, strkBalance, usdcBalance, priceHelper]);
 
   // NOTE: do not add SWAY here unless want SWAY to be auto-swappable for
   //  purchases (i.e. crewmates, starter packs, etc)
   const swappableTokenBalances = useMemo(() => {
     const allTokens = {
       [TOKEN.ETH]: ethBalance ? (ethBalance - safeBigInt(Math.floor(ethGasReserveBalance.to(TOKEN.ETH)))) : 0n,
+      [TOKEN.STRK]: strkBalance ? (strkBalance - safeBigInt(Math.floor(strkGasReserveBalance.to(TOKEN.STRK)))) : 0n,
       [TOKEN.USDC]: usdcBalance ? (usdcBalance - safeBigInt(Math.floor(usdcGasReserveBalance.to(TOKEN.USDC)))) : 0n,
     };
 
     // if autoswap, return allTokens... else, return just the specified purchase token
     if (!autoswap && !baseToken) return {};
     return autoswap ? allTokens : { [baseToken]: allTokens[baseToken] || 0n };
-  }, [autoswap, baseToken, ethBalance, ethGasReserveBalance, usdcBalance, usdcGasReserveBalance]);
+  }, [autoswap, baseToken, ethBalance, ethGasReserveBalance, strkBalance, strkGasReserveBalance, usdcBalance, usdcGasReserveBalance]);
 
   const isLoading = isLoading1 || isLoading2 || isLoading3 || isLoading4 || (!autoswap && isLoadingConstants);
   return useMemo(() => {
@@ -85,6 +91,7 @@ const useWalletPurchasableBalances = (overrideAccount) => {
         combinedBalance,
         shouldMaintainGasReserve: maintainGasReserve,
         ethGasReserveBalance,
+        strkGasReserveBalance,
         usdcGasReserveBalance,
         tokenBalances: swappableTokenBalances
       },
@@ -96,7 +103,7 @@ const useWalletPurchasableBalances = (overrideAccount) => {
       },
       isLoading
     };
-  }, [ethGasReserveBalance, usdcGasReserveBalance, isLoading, maintainGasReserve, priceHelper, refetch1, refetch2, refetch3, refetch4, swappableTokenBalances]);
+  }, [ethGasReserveBalance, strkGasReserveBalance, usdcGasReserveBalance, isLoading, maintainGasReserve, priceHelper, refetch1, refetch2, refetch3, refetch4, swappableTokenBalances]);
 }
 
 export default useWalletPurchasableBalances;

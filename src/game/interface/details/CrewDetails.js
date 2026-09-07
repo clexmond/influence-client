@@ -19,6 +19,7 @@ import {
   CheckIcon,
   CloseIcon,
   CopyIcon,
+  CrewmateCreditIcon,
   EditIcon,
   MyAssetIcon,
   PlusIcon
@@ -149,6 +150,21 @@ export const Stat = styled.div`
     content: "${p => p.label}:";
     display: block;
     opacity: 0.7;
+  }
+`;
+
+const CreditStat = styled(Stat)`
+  align-items: center;
+  display: flex;
+  gap: 8px;
+
+  &:before {
+    margin-right: 4px;
+  }
+
+  & > svg {
+    color: ${p => p.theme.colors.main};
+    font-size: 20px;
   }
 `;
 const CopyableAddress = styled.button`
@@ -296,6 +312,7 @@ const formatCompactAddress = (address) => {
 
 const CrewDetails = ({ crewId, crew, isMyCrew, isDelegatedCrew, isOwnedCrew, selectCrew }) => {
   const { accountAddress } = useSession();
+  const { adalianRecruits, arvadianRecruits } = useCrewContext();
   const history = useHistory();
   const { data: user, isLoading: userIsLoading } = useUser();
 
@@ -318,6 +335,10 @@ const CrewDetails = ({ crewId, crew, isMyCrew, isDelegatedCrew, isOwnedCrew, sel
   const [newName, setNewName] = useState(crew.Name?.name || '');
 
   const viewingAs = useMemo(() => ({ id: crewId, label: Entity.IDS.CREW }), [crewId]);
+  const totalRecruitCredits = useMemo(
+    () => (adalianRecruits?.length || 0) + (arvadianRecruits?.length || 0),
+    [adalianRecruits, arvadianRecruits]
+  );
   const hasMyCrewmates = useMemo(() => {
     return crew._crewmates.filter((c) => accountAddress && Address.areEqual(accountAddress, c.Nft?.owner))?.length;
   }, [accountAddress, crew._crewmates]);
@@ -566,6 +587,12 @@ const CrewDetails = ({ crewId, crew, isMyCrew, isDelegatedCrew, isOwnedCrew, sel
             {isOwnedCrew && <MyCrewStatement><MyAssetIcon /> This crew is owned by me.</MyCrewStatement>}
             <Stat label="Crew ID">{crewId || 0}</Stat>
             <Stat label="Formed">{formationDate}</Stat>
+            {totalRecruitCredits > 0 && (
+              <CreditStat label="Crewmate Credits">
+                <CrewmateCreditIcon />
+                <span>{totalRecruitCredits.toLocaleString()}</span>
+              </CreditStat>
+            )}
             {isOwnedCrew && hasDelegation && (
               <Stat label="Delegated to">
                 <CopyableAddress onClick={onCopyDelegationAddress} type="button">

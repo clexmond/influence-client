@@ -3,14 +3,79 @@ jest.mock('@cartridge/controller', () => ({
   default: jest.fn()
 }), { virtual: true });
 
-import { isUnsupportedWalletDisconnectError } from './walletErrors';
-import { createWalletConnectors, WALLET_IDS } from './wallets';
-import ControllerProvider from '@cartridge/controller';
+const { isUnsupportedWalletDisconnectError } = require('./walletErrors');
+const {
+  clearPendingAuthWalletId,
+  createWalletConnectors,
+  getPendingAuthWalletId,
+  getCartridgeChainOptions,
+  getPrimaryNewPlayerLoginOptions,
+  setPendingAuthWalletId,
+  WALLET_IDS
+} = require('./wallets');
+const ControllerProvider = require('@cartridge/controller').default;
 
 beforeEach(() => {
   jest.clearAllMocks();
   document.body.innerHTML = '';
   document.head.innerHTML = '';
+});
+
+test('uses Cartridge native RPCs for Starknet session execution', () => {
+  expect(getCartridgeChainOptions({
+    chainId: '0x534e5f5345504f4c4941',
+    rpcUrl: 'https://generic-sepolia.example'
+  })).toEqual({
+    defaultChainId: '0x534e5f5345504f4c4941'
+  });
+
+  expect(getCartridgeChainOptions({
+    chainId: '0x534e5f4d41494e',
+    rpcUrl: 'https://generic-mainnet.example'
+  })).toEqual({
+    defaultChainId: '0x534e5f4d41494e'
+  });
+});
+
+test('keeps the configured RPC for custom Cartridge chains', () => {
+  expect(getCartridgeChainOptions({
+    chainId: '0x1234',
+    rpcUrl: 'https://custom-chain.example'
+  })).toEqual({
+    defaultChainId: '0x1234',
+    chains: [{
+      chainId: '0x1234',
+      rpcUrl: 'https://custom-chain.example'
+    }]
+  });
+});
+
+test('uses Privy as the guided new-player login', () => {
+  expect(getPrimaryNewPlayerLoginOptions()).toEqual({
+    [WALLET_IDS.PRIVY]: true
+  });
+});
+
+test('includes the Privy connector when enabled', () => {
+  const privyConnector = { id: WALLET_IDS.PRIVY };
+  const connectors = createWalletConnectors({
+    [WALLET_IDS.PRIVY]: true,
+    [WALLET_IDS.CONTROLLER]: false,
+    [WALLET_IDS.ARGENT_X]: false,
+    [WALLET_IDS.BRAAVOS]: false
+  }, { privyConnector });
+
+  expect(connectors).toEqual({
+    [WALLET_IDS.PRIVY]: privyConnector
+  });
+});
+
+test('stores pending auth wallet only for the current browser session', () => {
+  setPendingAuthWalletId(WALLET_IDS.PRIVY);
+  expect(getPendingAuthWalletId()).toBe(WALLET_IDS.PRIVY);
+
+  clearPendingAuthWalletId();
+  expect(getPendingAuthWalletId()).toBeNull();
 });
 
 test('identifies injected wallets that do not support wallet_disconnect', () => {

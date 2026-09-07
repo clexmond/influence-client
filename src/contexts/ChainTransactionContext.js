@@ -16,10 +16,12 @@ import { useSwayBalance } from '~/hooks/useWalletTokenBalance';
 import api from '~/lib/api';
 import { cleanseTxHash, safeBigInt } from '~/lib/utils';
 import { TOKEN } from '~/lib/priceUtils';
+import { isWalletAccountLocked } from '~/lib/walletLock';
 
 const RETRY_INTERVAL = 5e3; // 5 seconds
 const WALLET_RECONNECT_TIMEOUT = 30e3;
 const ChainTransactionContext = createContext();
+const EXPLICIT_AUTHORIZATION_PRIMARY_TYPE = 'InfluenceTransactionAuthorization';
 
 // TODO: equalityTest default of 'i' doesn't make sense anymore
 
@@ -41,7 +43,7 @@ const customConfigs = {
   },
   AcceptPrepaidAgreement: {
     equalityTest: ['target.id', 'target.label', 'permission'],
-    getTransferConfig: ({ auctionPayment, recipient, permission, permitted, target, termPrice }) => {
+    getTransferConfig: ({ auctionPayment, isStarterLotLease, recipient, permission, permitted, target, termPrice }) => {
       const transfers = [];
 
       if (auctionPayment?.toController > 0n && auctionPayment?.controllerRecipient && auctionPayment?.previousTenant) {
@@ -60,11 +62,13 @@ const customConfigs = {
         });
       }
 
-      transfers.push({
-        amount: safeBigInt(termPrice),
-        recipient,
-        memo: Permission.getPrepaidAgreementMemo(target, permission, permitted)
-      });
+      if (!isStarterLotLease) {
+        transfers.push({
+          amount: safeBigInt(termPrice),
+          recipient,
+          memo: Permission.getPrepaidAgreementMemo(target, permission, permitted)
+        });
+      }
 
       return transfers;
     }
@@ -528,6 +532,36 @@ const customConfigs = {
   }
 };
 
+const buildExplicitAuthorizationTypedData = ({ accountAddress, action, chainId, details }) => ({
+  domain: {
+    name: 'Influence',
+    version: '1.1.0',
+    chainId: chainId || appConfig.get('Starknet.chainId'),
+    revision: '1'
+  },
+  message: {
+    action,
+    account: accountAddress,
+    details,
+    nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  },
+  primaryType: EXPLICIT_AUTHORIZATION_PRIMARY_TYPE,
+  types: {
+    [EXPLICIT_AUTHORIZATION_PRIMARY_TYPE]: [
+      { name: 'action', type: 'string' },
+      { name: 'account', type: 'felt' },
+      { name: 'details', type: 'string' },
+      { name: 'nonce', type: 'string' }
+    ],
+    StarknetDomain: [
+      { name: 'name', type: 'shortstring' },
+      { name: 'version', type: 'shortstring' },
+      { name: 'chainId', type: 'shortstring' },
+      { name: 'revision', type: 'shortstring' }
+    ]
+  }
+});
+
 const getSystemCallAndProcessedVars = (runSystem, rawVars, encodeEntrypoint = false, limitToVars = false, overrideCalldataLength = false) => {
   let vars = customConfigs[runSystem]?.preprocess ? customConfigs[runSystem].preprocess(rawVars) : rawVars;
   const systemCall = System.getRunSystemCall(runSystem, vars, appConfig.get('Starknet.Address.dispatcher'), limitToVars);
@@ -544,6 +578,7 @@ const getSystemCallAndProcessedVars = (runSystem, rawVars, encodeEntrypoint = fa
 export function ChainTransactionProvider({ children }) {
   const {
     accountAddress,
+    accountDeploymentData,
     allowedMethods,
     authenticated,
     blockNumber,
@@ -557,6 +592,7 @@ export function ChainTransactionProvider({ children }) {
     sessionWallet,
     upgradeInsecureSession,
     walletAccount,
+    walletCapabilities,
     walletId
   } = useSession();
   const activities = useActivitiesContext();
@@ -642,6 +678,35 @@ export function ChainTransactionProvider({ children }) {
   // Temporary logging for nonces
   useEffect(() => console.log('NONCE', nonce || null), [nonce]);
 
+  const requireSessionUpgrade = useCallback(async () => {
+    const upgraded = await upgradeInsecureSession();
+    if (upgraded === false) {
+      const error = new Error('Unable to upgrade account session after deployment.');
+      error.userMessage = 'Please sign in to continue.';
+      throw error;
+    }
+  }, [upgradeInsecureSession]);
+
+  const requireExplicitAuthorization = useCallback(async (account, options = {}) => {
+    if (!options.requireExplicitSignature || !walletCapabilities.usesClientRawSigning) return;
+
+    try {
+      await account.signMessage(buildExplicitAuthorizationTypedData({
+        accountAddress: accountAddress || account?.address,
+        chainId,
+        action: options.authorization?.action || 'Authorize transaction',
+        details: options.authorization?.details || 'Confirm this Influence transaction.'
+      }));
+    } catch (e) {
+      if (/Cannot encode data|missing data/i.test(e?.message || '')) throw e;
+
+      const error = new Error('User rejected explicit transaction authorization.');
+      error.cause = e;
+      error.userMessage = 'Please authorize this purchase to continue.';
+      throw error;
+    }
+  }, [accountAddress, chainId, walletCapabilities.usesClientRawSigning]);
+
   // autoresolve when actionType is set but actionType was not actually triggered by actionRound
   const prependEventAutoresolve = useMemo(
     // TODO: can we check with a read call that this doesn't predict failure before prepending it
@@ -654,19 +719,44 @@ export function ChainTransactionProvider({ children }) {
     [blockNumber, crew?.Crew?.actionType, crew?.Crew?.actionRound, crew?._actionTypeTriggered]
   );
 
-  const executeWithAccount = useCallback(async (calls) => {
+  const executeWithAccount = useCallback(async (calls, options = {}) => {
     const account = walletAccountRef.current;
     if (!account) throw new Error('Account is disconnected');
+    const usePaymaster = options.usePaymaster !== false;
 
     // Format calls for proper stringification
     const formattedCalls = calls.map((call) => {
       return { ...call, calldata: call.calldata.map(a => num.toHex(a)) };
     });
 
+    if (usePaymaster && walletCapabilities.requiresSponsoredTransactions) {
+      if (!appConfig.get('Starknet.paymasterProxy')) {
+        const error = new Error('Privy sponsorship requires the Influence paymaster proxy.');
+        error.userMessage = 'Sponsored transactions are temporarily unavailable. Please try again shortly.';
+        throw error;
+      }
+
+      let deploymentData;
+      if (!isDeployed) {
+        try {
+          await provider.getClassAt(accountAddress);
+          await requireSessionUpgrade();
+        } catch (error) {
+          if (!error.message?.includes('Contract not found')) throw error;
+          if (accountDeploymentData) deploymentData = accountDeploymentData;
+        }
+      }
+
+      return account.executePaymasterTransaction(formattedCalls, {
+        feeMode: { mode: 'sponsored' },
+        ...(deploymentData ? { deploymentData } : {})
+      });
+    }
+
     // handle paymaster for gas (must be deployed)
     let paymasterToken;
 
-    if (isDeployed) {
+    if (usePaymaster && isDeployed) {
       for (let gasToken of gasTokens) {
         try {
           // get wallet balance of gas token
@@ -698,13 +788,17 @@ export function ChainTransactionProvider({ children }) {
     }
   }, [
     accountAddress,
+    accountDeploymentData,
     allowedMethods,
     createAlert,
     chainId,
     gasTokens,
     isDeployed,
     nonce,
-    sessionWallet
+    provider,
+    sessionWallet,
+    requireSessionUpgrade,
+    walletCapabilities.requiresSponsoredTransactions
   ]);
 
   const contracts = useMemo(() => {
@@ -725,7 +819,7 @@ export function ChainTransactionProvider({ children }) {
         acc[systemName] = {
           equalityTest: config.equalityTest,
 
-          execute: async (rawVars) => {
+          execute: async (rawVars, options = {}) => {
             let systemCalls;
             if (config.multisystemCalls) {
               systemCalls = (
@@ -945,7 +1039,7 @@ export function ChainTransactionProvider({ children }) {
             }
 
             console.log('execute', calls);
-            return executeWithAccount(calls);
+            return executeWithAccount(calls, options);
           },
 
           onConfirmed: (event, vars) => {
@@ -1110,23 +1204,6 @@ export function ChainTransactionProvider({ children }) {
     }
   }, [blockNumber]);
 
-  const isAccountLocked = useCallback(async (account = walletAccountRef.current) => {
-    if (!account) return true;
-
-    // Check that the account isn't locked, and prompt to unlock if it is
-    try {
-      await account.walletProvider.request({
-        type: 'wallet_requestAccounts',
-        params: { silent_mode: false }
-      });
-
-      return false;
-    } catch (e) {
-      return true;
-    }
-  }, []);
-
-
   const handleExecutionExeption = useCallback((e, executeCalls, txDetails = {}) => {
     const isNotDeployed = e?.message && (
       e?.message.toLowerCase().includes('account not deployed')
@@ -1193,8 +1270,88 @@ export function ChainTransactionProvider({ children }) {
     }
   }, [accountAddress, createAlert, dispatchFailedTransaction, logout]);
 
+  const deployAccount = useCallback(async () => {
+    if (isDeployed) return { deployed: true, transaction: null };
+
+    let activeWalletAccount = walletAccountRef.current;
+    if (!activeWalletAccount) {
+      setPromptingTransaction(true);
+      try {
+        activeWalletAccount = await waitForWalletConnection();
+      } catch (e) {
+        createAlert({
+          type: 'GenericAlert',
+          data: { content: 'Reconnect your wallet to continue.' },
+          level: 'warning',
+        });
+        throw e;
+      } finally {
+        setPromptingTransaction(false);
+      }
+    }
+
+    if (!walletCapabilities.requiresSponsoredTransactions) {
+      const error = new Error('Wallet account deployment is not sponsored for this wallet.');
+      error.userMessage = 'Account deployment is not available for this wallet.';
+      throw error;
+    }
+
+    if (!accountDeploymentData) {
+      const error = new Error('Missing account deployment data.');
+      error.userMessage = 'Account setup is incomplete. Please reconnect and try again.';
+      throw error;
+    }
+
+    if (!appConfig.get('Starknet.paymasterProxy')) {
+      const error = new Error('Privy sponsorship requires the Influence paymaster proxy.');
+      error.userMessage = 'Sponsored transactions are temporarily unavailable. Please try again shortly.';
+      throw error;
+    }
+
+    try {
+      await provider.getClassAt(accountAddress);
+      await requireSessionUpgrade();
+      return { deployed: true, transaction: null };
+    } catch (error) {
+      if (!error.message?.includes('Contract not found')) throw error;
+    }
+
+    setPromptingTransaction(true);
+    try {
+      const tx = await activeWalletAccount.executePaymasterTransaction([], {
+        feeMode: { mode: 'sponsored' },
+        deploymentData: accountDeploymentData
+      });
+      const txHash = cleanseTxHash(tx);
+
+      if (txHash) {
+        const receipt = await provider.waitForTransaction(txHash, { retryInterval: RETRY_INTERVAL });
+        if (receipt) {
+          await requireSessionUpgrade();
+        }
+      }
+
+      return { deployed: true, transaction: tx };
+    } catch (e) {
+      handleExecutionExeption(e, null, null);
+      throw e;
+    } finally {
+      setPromptingTransaction(false);
+    }
+  }, [
+    accountAddress,
+    accountDeploymentData,
+    createAlert,
+    handleExecutionExeption,
+    isDeployed,
+    provider,
+    requireSessionUpgrade,
+    waitForWalletConnection,
+    walletCapabilities.requiresSponsoredTransactions
+  ]);
+
   // Allows for multiple explicit / manual calls to be executed in a single transaction
-  const executeCalls = useCallback(async (calls) => {
+  const executeCalls = useCallback(async (calls, options = {}) => {
     let activeWalletAccount = walletAccountRef.current;
     if (!activeWalletAccount) {
       setPromptingTransaction(true);
@@ -1229,7 +1386,7 @@ export function ChainTransactionProvider({ children }) {
     // start prompting state before isAccountLocked since *might* take some time
     // and want to disable isTransaction buttons immediately
     setPromptingTransaction(true);
-    if (await isAccountLocked(activeWalletAccount)) {
+    if (await isWalletAccountLocked(activeWalletAccount)) {
       createAlert({
         type: 'GenericAlert',
         data: { content: 'Account is unavailable.' },
@@ -1241,7 +1398,8 @@ export function ChainTransactionProvider({ children }) {
 
     // execute
     try {
-      const tx = await executeWithAccount(calls);
+      await requireExplicitAuthorization(activeWalletAccount, options);
+      const tx = await executeWithAccount(calls, options);
 
       // if a tx just went through and account is not known to be deployed,
       // now is a good time to check again if it is deployed
@@ -1261,10 +1419,10 @@ export function ChainTransactionProvider({ children }) {
       handleExecutionExeption(e, executeCalls);
       throw e;  // rethrow
     }
-  }, [createAlert, executeWithAccount, handleExecutionExeption, isAccountLocked, isDeployed, upgradeInsecureSession, waitForWalletConnection])
+  }, [createAlert, executeWithAccount, handleExecutionExeption, isDeployed, requireExplicitAuthorization, upgradeInsecureSession, waitForWalletConnection])
 
   // Primary execute method for system calls (requires name of system, etc.)
-  const executeSystem = useCallback(async (key, vars, meta = {}) => {
+  const executeSystem = useCallback(async (key, vars, meta = {}, options = {}) => {
     if (simulationEnabled) {
       const uuid = `0x${String(performance.now()).replace('.', '')}`;
       dispatchPendingTransaction({
@@ -1310,7 +1468,7 @@ export function ChainTransactionProvider({ children }) {
     // start prompting state before isAccountLocked since *might* take some time
     // and want to disable isTransaction buttons immediately
     setPromptingTransaction(true);
-    if (await isAccountLocked(activeWalletAccount)) {
+    if (await isWalletAccountLocked(activeWalletAccount)) {
       createAlert({
         type: 'GenericAlert',
         data: { content: 'Account is unavailable.' },
@@ -1323,7 +1481,8 @@ export function ChainTransactionProvider({ children }) {
     // execute
     const { execute: contractExecute, onTransactionError } = activeContracts[key];
     try {
-      const tx = await contractExecute(vars);
+      await requireExplicitAuthorization(activeWalletAccount, options);
+      const tx = await contractExecute(vars, options);
       dispatchPendingTransaction({
         key,
         vars,
@@ -1343,7 +1502,7 @@ export function ChainTransactionProvider({ children }) {
     }
 
     setPromptingTransaction(false);
-  }, [blockTime, createAlert, handleExecutionExeption, isAccountLocked, simulationEnabled, waitForWalletConnection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [blockTime, createAlert, handleExecutionExeption, requireExplicitAuthorization, simulationEnabled, waitForWalletConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getPendingTx = useCallback((key, vars) => {
     // simulation will only ever have one concurrent?
@@ -1374,6 +1533,7 @@ export function ChainTransactionProvider({ children }) {
 
   return (
     <ChainTransactionContext.Provider value={{
+      deployAccount,
       execute: executeSystem,
       executeCalls,
       getStatus,

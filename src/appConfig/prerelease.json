@@ -7,8 +7,11 @@
   "Api": {
     "argentWebWallet": "https://sepolia-web.ready.co",
     "avnu": "https://sepolia.api.avnu.fi",
-    "influence": "https://api-prerelease.influenceth.io",
-    "ramp": "https://app.demo.ramp.network"
+    "banxa": "",
+    "influence": "https://api-prerelease.influenceth.io"
+  },
+  "Banxa": {
+    "minFiat": 20
   },
   "Ethereum": {
     "chainId": "11155111",
@@ -30,6 +33,7 @@
   "Starknet": {
     "chainId": "0x534e5f5345504f4c4941",
     "paymaster": "https://sepolia.paymaster.avnu.fi",
+    "paymasterProxy": "",
     "Address": {
       "ethToken": "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
       "strkToken": "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",

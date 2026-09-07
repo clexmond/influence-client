@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import styled from 'styled-components';
 
-import { ArgentXIcon, BraavosIcon, ChevronRightIcon } from '~/components/Icons';
+import { ArgentXIcon, BraavosIcon, ChevronRightIcon, UserIcon } from '~/components/Icons';
 import { hexToRGB } from '~/theme';
 
 const Panel = styled.div`
@@ -172,6 +172,12 @@ const ButtonText = styled.span`
 `;
 
 const configs = {
+  privy: {
+    id: 'privy',
+    icon: <UserIcon />,
+    label: 'Influence Account',
+    sublabel: 'Continue with Google or email'
+  },
   argentX: {
     id: 'argentX',
     icon: <ArgentXIcon />,
@@ -204,7 +210,7 @@ const LoginPrompt = ({
   busy,
   expanded = true,
   onClick,
-  options = ['controller', 'argentX', 'braavos']
+  options = ['privy', 'controller', 'argentX', 'braavos']
 }) => {
   const optionConfigs = options.map((option) => configs[option]).filter(Boolean);
   const [primaryConfig, otherConfigs] = useMemo(

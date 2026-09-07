@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import styled, { keyframes } from 'styled-components';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building, Crewmate, Entity, Product } from '@influenceth/sdk';
-import { EmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
-import { loadStripe } from '@stripe/stripe-js';
 
 import OwnedCrewImage from '~/assets/images/modal_headers/OwnedCrew.png';
 import Button from '~/components/ButtonAlt';
@@ -12,12 +10,16 @@ import CrewmateCardFramed from '~/components/CrewmateCardFramed';
 import Details from '~/components/DetailsModal';
 import {
   CheckIcon,
+  CheckedIcon,
   CrewmateCreditIcon,
   LotControlIcon,
   MyAssetIcon,
+  UncheckedIcon,
   WarningIcon
 } from '~/components/Icons';
+import { CheckboxButton } from '~/components/filters/components';
 import PageLoader from '~/components/PageLoader';
+import ChainTransactionContext from '~/contexts/ChainTransactionContext';
 import {
   AboveFold,
   CoverImage,
@@ -57,13 +59,14 @@ import {
 } from '~/lib/starterPacks';
 import { getRandomAdalianAppearance } from '~/lib/crewmateDesign';
 import { nativeBool } from '~/lib/utils';
+import { getPrimaryNewPlayerLoginOptions } from '~/lib/wallets';
 import { PurchaseForm } from './components/PurchaseForm';
 import SKUHighlight from './components/SKUHighlight';
+import StripeEmbeddedCheckout, { stripePromise } from './components/StripeEmbeddedCheckout';
 
 const checkoutPollMs = 5000;
 const grantedCrewPollMs = 2000;
-const stripePublishableKey = appConfig.get('Api.ClientId.stripe');
-const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+const expandedPackPortraitWidth = 112.5;
 
 const StarterPackContent = styled.div`
   padding-bottom: 20px;
@@ -213,7 +216,15 @@ const ExpandedDescription = styled.div`
   filter: brightness(135%);
   font-size: 15px;
   line-height: 1.45;
-  margin: 14px 0 20px;
+  margin: 14px 0 12px;
+  max-width: 430px;
+`;
+
+const ExpandedDisclosure = styled.div`
+  color: #ddd;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0 0 18px;
   max-width: 430px;
 `;
 
@@ -418,10 +429,10 @@ const Notice = styled.div`
   display: flex;
   flex: 1 1 auto;
   gap: 10px;
-  margin: 12px 0;
+  margin: 8px 0 0;
   min-width: 0;
   overflow: hidden;
-  padding: 12px 14px;
+  padding: 9px 14px;
   position: relative;
   width: 100%;
 
@@ -453,7 +464,7 @@ const Notice = styled.div`
     width: auto;
   }
 
-  & > div {
+  & > .notice-actions {
     display: flex;
     flex: 0 0 auto;
     gap: 10px;
@@ -465,6 +476,15 @@ const Notice = styled.div`
   }
 `;
 
+const NoticeBody = styled.div`
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+`;
+
+const NoticeActions = styled.div.attrs({ className: 'notice-actions' })``;
+
 const StarterPackStatusSlot = styled.div`
   display: flex;
   margin: 0 auto;
@@ -472,21 +492,24 @@ const StarterPackStatusSlot = styled.div`
   width: 96%;
 `;
 
-const EmbeddedCheckoutOverlay = styled.div`
+const CheckoutAcknowledgement = styled.div`
   align-items: center;
-  background: rgba(0, 0, 0, 0.82);
+  color: #ddd;
+  cursor: ${p => p.theme.cursors.active};
   display: flex;
-  inset: 0;
-  justify-content: center;
-  position: fixed;
-  z-index: 10000;
-`;
+  flex: 0 1 auto;
+  font-size: 12px;
+  gap: 8px;
+  line-height: 1.3;
+  margin: 0;
+  max-width: 980px;
 
-const EmbeddedCheckoutContainer = styled.div`
-  border-radius: 8px;
-  max-height: calc(100vh - 40px);
-  overflow-y: auto;
-  width: min(1000px, calc(100vw - 40px));
+  & ${CheckboxButton} {
+    color: ${p => p.$checked ? p.theme.colors.main : '#aaa'};
+    flex: 0 0 auto;
+    margin-right: 0;
+    opacity: ${p => p.$checked ? 1 : 0.65};
+  }
 `;
 
 const DesignerWrapper = styled.div`
@@ -681,36 +704,6 @@ const clearCheckoutSessionIdFromUrl = () => {
   window.history.replaceState({}, '', url.toString());
 };
 
-const StarterPackEmbeddedCheckout = ({ clientSecret, onClose, onComplete }) => {
-  const options = useMemo(() => ({ clientSecret, onComplete }), [clientSecret, onComplete]);
-
-  useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
-
-  return createPortal(
-    <EmbeddedCheckoutOverlay onClick={onClose} role="presentation">
-      <EmbeddedCheckoutContainer
-        aria-label="Stripe Checkout"
-        aria-modal="true"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog">
-        <EmbeddedCheckoutProvider
-          key={clientSecret}
-          stripe={stripePromise}
-          options={options}>
-          <EmbeddedCheckout />
-        </EmbeddedCheckoutProvider>
-      </EmbeddedCheckoutContainer>
-    </EmbeddedCheckoutOverlay>,
-    document.body
-  );
-};
-
 const PackEntitlements = ({ color, product }) => (
   <ExpandedPackDetails>
     {!!product.requiredCrewmates && (
@@ -829,10 +822,13 @@ const ProductCard = ({ disabled, expanded, isPurchasing, isRecommended, locked, 
                   isCaptain
                   CrewmateCardProps={{ useExplicitAppearance: true }}
                   crewmate={displayCrewmate}
-                  width={150} />
+                  width={expandedPackPortraitWidth} />
               </ExpandedPortrait>
               <h2>{product.name}</h2>
               <ExpandedDescription color={color}>{product.description}</ExpandedDescription>
+              <ExpandedDisclosure>
+                Starter packs include early-game support for getting established in the belt. After the starter period, further actions may require additional funds. In-game resources can be earned during play or additional funds added later if needed.
+              </ExpandedDisclosure>
               <ExpandedPrice color={color}>
                 <span>{formatPrice(product)}</span>
               </ExpandedPrice>
@@ -883,22 +879,47 @@ const ProductCard = ({ disabled, expanded, isPurchasing, isRecommended, locked, 
   );
 };
 
-const PackSelectionStatus = ({ confirming, onCancel, onConfirm, product }) => (
-  <Notice>
-    <CheckIcon />
-    <span>
-      <b>{product.name}</b> selected. Confirm to continue to secure Stripe Checkout.
-    </span>
-    <div>
-      <Button disabled={nativeBool(confirming)} onClick={onCancel}>Back</Button>
-      <Button disabled={nativeBool(confirming)} isTransaction onClick={onConfirm}>
-        {confirming ? 'Opening Stripe...' : 'Checkout'}
-      </Button>
-    </div>
-  </Notice>
-);
+const PackSelectionStatus = ({ acknowledged, confirming, onAcknowledge, onCancel, onConfirm, product }) => {
+  const onAcknowledgementKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onAcknowledge();
+    }
+  };
+
+  return (
+    <Notice>
+      <NoticeBody>
+        <CheckoutAcknowledgement
+          $checked={acknowledged}
+          aria-checked={acknowledged}
+          onClick={onAcknowledge}
+          onKeyDown={onAcknowledgementKeyDown}
+          role="checkbox"
+          tabIndex={0}>
+          <CheckboxButton
+            checked={acknowledged}
+            tabIndex={-1}
+            type="button">
+            {acknowledged ? <CheckedIcon /> : <UncheckedIcon />}
+          </CheckboxButton>
+          <span>
+            I understand that by checking out for the <b>{product.name}</b>, fulfillment begins when I submit my starter crew customization, and once fulfillment begins I may lose any statutory withdrawal right for this digital content.
+          </span>
+        </CheckoutAcknowledgement>
+      </NoticeBody>
+      <NoticeActions>
+        <Button disabled={nativeBool(confirming)} onClick={onCancel}>Back</Button>
+        <Button disabled={nativeBool(confirming || !acknowledged)} isTransaction onClick={onConfirm}>
+          {confirming ? 'Opening Stripe...' : 'Checkout'}
+        </Button>
+      </NoticeActions>
+    </Notice>
+  );
+};
 
 const PurchaseStatus = ({
+  accountDeploying,
   awaitingPaymentConfirmation,
   canResumeCheckout,
   onClear,
@@ -910,6 +931,14 @@ const PurchaseStatus = ({
   if (!purchase) return null;
 
   if (purchase.status === STARTER_PACK_STATUSES.PAID_PENDING_CUSTOMIZATION) {
+    if (accountDeploying) {
+      return (
+        <Notice $finalizing>
+          <span>Setting up your Influence account. Please wait...</span>
+        </Notice>
+      );
+    }
+
     return (
       <Notice>
         <CheckIcon />
@@ -948,21 +977,21 @@ const PurchaseStatus = ({
       );
     }
 
-    return (
-      <Notice>
-        <CheckIcon />
-        <span>Checkout created for {product?.name}. Complete payment to continue.</span>
-        <div>
-          <Button onClick={onClear}>Clear</Button>
-          <Button
-            disabled={nativeBool(!canResumeCheckout)}
-            isTransaction
-            onClick={onResumeCheckout}>
-            {canResumeCheckout ? 'Resume Checkout' : 'Loading Checkout...'}
-          </Button>
-        </div>
-      </Notice>
-    );
+      return (
+        <Notice>
+          <CheckIcon />
+          <span>Checkout created for {product?.name}. Complete payment to continue.</span>
+          <NoticeActions>
+            <Button onClick={onClear}>Clear</Button>
+            <Button
+              disabled={nativeBool(!canResumeCheckout)}
+              isTransaction
+              onClick={onResumeCheckout}>
+              {canResumeCheckout ? 'Resume Checkout' : 'Loading Checkout...'}
+            </Button>
+          </NoticeActions>
+        </Notice>
+      );
   }
 
   return (
@@ -1286,7 +1315,8 @@ const StarterPackDevTools = ({
 
 const StarterPackSKU = () => {
   const queryClient = useQueryClient();
-  const { accountAddress, authenticated, login } = useSession();
+  const { accountAddress, authenticated, isDeployed, login, walletCapabilities } = useSession();
+  const { deployAccount } = useContext(ChainTransactionContext);
   const createAlert = useStore(s => s.dispatchAlertLogged);
   const starterPackCheckout = useStore(s => s.starterPackCheckout);
   const starterPackCustomizationDrafts = useStore(s => s.starterPackCustomizationDrafts || {});
@@ -1312,8 +1342,12 @@ const StarterPackSKU = () => {
   const [devPurchase, setDevPurchase] = useState(null);
   const [customizationOpen, setCustomizationOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState();
+  const [checkoutAcknowledged, setCheckoutAcknowledged] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [deployingAccount, setDeployingAccount] = useState(false);
   const completedPurchaseRef = useRef();
+  const accountSetupPurchaseRef = useRef();
+  const accountSetupInFlightRef = useRef();
 
   const { data: products, isLoading: productsLoading } = useStarterPacks();
   const devToolsEnabled = !!appConfig.get('App.enableDevTools');
@@ -1358,7 +1392,7 @@ const StarterPackSKU = () => {
     queryKey: ['entity', Entity.IDS.CREW, grantedCrewId],
     queryFn: () => api.getEntityById({ label: Entity.IDS.CREW, id: grantedCrewId }),
     enabled: !!authenticated && !!grantedCrewId,
-    refetchInterval: (query) => query.state.data ? false : grantedCrewPollMs
+    refetchInterval: (query) => query.state.data?.StarterPack ? false : grantedCrewPollMs
   });
   const isMockPurchase = isDevStarterPackPurchase(purchase);
   const selectedProduct = useMemo(() => (
@@ -1373,6 +1407,10 @@ const StarterPackSKU = () => {
   const draft = purchase?.id ? starterPackCustomizationDrafts[purchase.id] : null;
   const displayedProduct = purchaseProduct || selectedProduct;
   const visibleProducts = displayedProduct ? [displayedProduct] : (products || []);
+
+  useEffect(() => {
+    setCheckoutAcknowledged(false);
+  }, [selectedProductId]);
 
   useEffect(() => {
     if (checkoutQuery.data?.clientSecret) {
@@ -1430,6 +1468,7 @@ const StarterPackSKU = () => {
   useEffect(() => {
     if (!purchase) return;
     setSelectedProductId(undefined);
+    setCheckoutAcknowledged(false);
     if (!isMockPurchase) dispatchStarterPackCheckoutUpdated(purchase);
     if (purchase.canCustomize) dispatchStarterPackCustomizationDraftInitialized(purchase);
   }, [
@@ -1444,8 +1483,61 @@ const StarterPackSKU = () => {
   ]);
 
   useEffect(() => {
-    if (purchase?.canCustomize && draft) setCustomizationOpen(true);
-  }, [draft, purchase?.canCustomize, purchase?.id]);
+    if (!purchase?.id || accountSetupPurchaseRef.current === purchase.id) return;
+    accountSetupPurchaseRef.current = undefined;
+    accountSetupInFlightRef.current = undefined;
+  }, [purchase?.id]);
+
+  useEffect(() => {
+    if (!purchase?.canCustomize || !draft) return;
+
+    if (
+      isMockPurchase ||
+      isDeployed ||
+      !walletCapabilities.requiresSponsoredTransactions ||
+      accountSetupPurchaseRef.current === purchase.id ||
+      accountSetupInFlightRef.current === purchase.id
+    ) {
+      if (accountSetupInFlightRef.current !== purchase.id) setCustomizationOpen(true);
+      return;
+    }
+
+    let cancelled = false;
+    accountSetupInFlightRef.current = purchase.id;
+    setDeployingAccount(true);
+
+    deployAccount()
+      .then((result) => {
+        if (result?.deployed) accountSetupPurchaseRef.current = purchase.id;
+        if (!cancelled && result?.deployed) setCustomizationOpen(true);
+      })
+      .catch((e) => {
+        accountSetupPurchaseRef.current = undefined;
+        if (!cancelled) {
+          createAlert({
+            type: 'GenericAlert',
+            level: 'warning',
+            data: { content: e?.userMessage || e.message || 'Unable to set up your Influence account.' },
+            duration: 10000
+          });
+        }
+      })
+      .finally(() => {
+        if (accountSetupInFlightRef.current === purchase.id) accountSetupInFlightRef.current = undefined;
+        if (!cancelled) setDeployingAccount(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [
+    createAlert,
+    deployAccount,
+    draft,
+    isDeployed,
+    isMockPurchase,
+    purchase?.canCustomize,
+    purchase?.id,
+    walletCapabilities.requiresSponsoredTransactions
+  ]);
 
   useEffect(() => {
     if (purchase?.status && purchase.status !== STARTER_PACK_STATUSES.CHECKOUT_CREATED) {
@@ -1460,6 +1552,7 @@ const StarterPackSKU = () => {
       !purchase?.id ||
       !grantedCrewId ||
       grantedCrew?.id !== grantedCrewId ||
+      !grantedCrew?.StarterPack ||
       completedPurchaseRef.current === purchase.id
     ) return;
 
@@ -1528,7 +1621,7 @@ const StarterPackSKU = () => {
 
   const onCheckout = useCallback(async (product) => {
     if (!authenticated) {
-      login({ controller: true });
+      login(getPrimaryNewPlayerLoginOptions());
       return;
     }
 
@@ -1719,6 +1812,7 @@ const StarterPackSKU = () => {
           {purchase
             ? (
               <PurchaseStatus
+                accountDeploying={deployingAccount}
                 awaitingPaymentConfirmation={awaitingPaymentConfirmation}
                 canResumeCheckout={!!stripePromise && !!checkoutClientSecret}
                 onClear={onClearCompleted}
@@ -1733,7 +1827,12 @@ const StarterPackSKU = () => {
             : (
               <PackSelectionStatus
                 confirming={checkoutProductId === selectedProduct.productId}
-                onCancel={() => setSelectedProductId(undefined)}
+                acknowledged={checkoutAcknowledged}
+                onAcknowledge={() => setCheckoutAcknowledged((current) => !current)}
+                onCancel={() => {
+                  setCheckoutAcknowledged(false);
+                  setSelectedProductId(undefined);
+                }}
                 onConfirm={() => onCheckout(selectedProduct)}
                 product={selectedProduct} />
             )}
@@ -1777,7 +1876,7 @@ const StarterPackSKU = () => {
         customizationPortalTarget
       )}
       {checkoutOpen && checkoutClientSecret && stripePromise && (
-        <StarterPackEmbeddedCheckout
+        <StripeEmbeddedCheckout
           clientSecret={checkoutClientSecret}
           onClose={() => setCheckoutOpen(false)}
           onComplete={onCheckoutComplete} />

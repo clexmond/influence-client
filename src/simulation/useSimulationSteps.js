@@ -25,6 +25,7 @@ import { fireTrackingEvent, formatPrice } from '~/lib/utils';
 import { TOKEN, TOKEN_SCALE } from '~/lib/priceUtils';
 import useSession from '~/hooks/useSession';
 import { cutsceneHideTime } from '~/game/Cutscene';
+import { getPrimaryNewPlayerLoginOptions } from '~/lib/wallets';
 
 const DELAY_MESSAGE = 1000;
 
@@ -1051,7 +1052,7 @@ const useSimulationSteps = () => {
           disabled: connecting,
           onClick: () => {
             fireTrackingEvent('simulation', { step: 'login' });
-            login({ controller: true });
+            login(getPrimaryNewPlayerLoginOptions());
             // TODO: add on-logged-in url
           },
         }

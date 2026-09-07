@@ -14,6 +14,11 @@ import {
   resizeStarterPackCustomizationDraft,
   updateStarterPackCheckoutState
 } from '~/lib/starterPacks';
+import {
+  createCrewmatePurchaseCheckoutState,
+  createCrewmatePurchaseDraft,
+  updateCrewmatePurchaseCheckoutState
+} from '~/lib/crewmatePurchases';
 import { safeBigInt } from '~/lib/utils';
 import SIMULATION_CONFIG from '~/simulation/simulationConfig';
 import { appConfig } from '~/appConfig';
@@ -173,8 +178,12 @@ const useStore = create(
 
         chatHistory: [],
         bridgeTransfers: {},
+        activeFundingIntentId: null,
+        fundingIntents: {},
         starterPackCheckout: null,
         starterPackCustomizationDrafts: {},
+        crewmatePurchaseCheckout: null,
+        crewmatePurchaseDrafts: {},
 
         hasSeenIntroVideo: false,
         hiddenActionItems: [],
@@ -552,6 +561,31 @@ const useStore = create(
           );
         })),
 
+        dispatchFundingIntentStarted: (intent) => set(produce(state => {
+          if (!intent?.id) return;
+          if (!state.fundingIntents) state.fundingIntents = {};
+          state.fundingIntents[intent.id] = {
+            ...intent,
+            updatedAt: Date.now()
+          };
+          state.activeFundingIntentId = intent.id;
+        })),
+        dispatchFundingIntentUpdated: (id, update) => set(produce(state => {
+          if (!id || !state.fundingIntents?.[id]) return;
+          state.fundingIntents[id] = {
+            ...state.fundingIntents[id],
+            ...update,
+            updatedAt: Date.now()
+          };
+        })),
+        dispatchFundingIntentCleared: (id) => set(produce(state => {
+          if (!id || !state.fundingIntents) return;
+          delete state.fundingIntents[id];
+          if (state.activeFundingIntentId === id) {
+            state.activeFundingIntentId = null;
+          }
+        })),
+
         dispatchStarterPackCheckoutStarted: (purchase, update) => set(produce(state => {
           state.starterPackCheckout = createStarterPackCheckoutState(purchase, update);
         })),
@@ -593,6 +627,42 @@ const useStore = create(
         dispatchStarterPackStateReset: () => set(produce(state => {
           state.starterPackCheckout = null;
           state.starterPackCustomizationDrafts = {};
+        })),
+
+        dispatchCrewmatePurchaseCheckoutStarted: (purchase, update) => set(produce(state => {
+          state.crewmatePurchaseCheckout = createCrewmatePurchaseCheckoutState(purchase, update);
+        })),
+        dispatchCrewmatePurchaseCheckoutUpdated: (purchase, update) => set(produce(state => {
+          state.crewmatePurchaseCheckout = updateCrewmatePurchaseCheckoutState(state.crewmatePurchaseCheckout, purchase, update);
+        })),
+        dispatchCrewmatePurchaseCheckoutCleared: () => set(produce(state => {
+          state.crewmatePurchaseCheckout = null;
+        })),
+        dispatchCrewmatePurchaseDraftInitialized: (purchase) => set(produce(state => {
+          if (!purchase?.id) return;
+          if (!state.crewmatePurchaseDrafts) state.crewmatePurchaseDrafts = {};
+          state.crewmatePurchaseDrafts[purchase.id] = state.crewmatePurchaseDrafts[purchase.id] || createCrewmatePurchaseDraft(purchase);
+        })),
+        dispatchCrewmatePurchaseDraftUpdated: (purchaseId, update) => set(produce(state => {
+          if (!purchaseId || !state.crewmatePurchaseDrafts?.[purchaseId]) return;
+          state.crewmatePurchaseDrafts[purchaseId] = {
+            ...state.crewmatePurchaseDrafts[purchaseId],
+            ...update,
+            updatedAt: Date.now()
+          };
+        })),
+        dispatchCrewmatePurchaseCrewmateUpdated: (purchaseId, update) => set(produce(state => {
+          const crewmate = state.crewmatePurchaseDrafts?.[purchaseId]?.crewmate;
+          if (!crewmate) return;
+          state.crewmatePurchaseDrafts[purchaseId].crewmate = {
+            ...crewmate,
+            ...update
+          };
+          state.crewmatePurchaseDrafts[purchaseId].updatedAt = Date.now();
+        })),
+        dispatchCrewmatePurchaseDraftCleared: (purchaseId) => set(produce(state => {
+          if (!purchaseId || !state.crewmatePurchaseDrafts) return;
+          delete state.crewmatePurchaseDrafts[purchaseId];
         })),
 
         dispatchTimeOverride: (anchor, speed) => set((produce(state => {

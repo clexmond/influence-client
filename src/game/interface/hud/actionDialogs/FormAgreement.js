@@ -39,6 +39,11 @@ import useAsteroid from '~/hooks/useAsteroid';
 import { TOKEN, TOKEN_SCALE } from '~/lib/priceUtils';
 import { copyTextToClipboard } from '~/lib/clipboard';
 import {
+  STARTER_LOT_LEASE_TERM,
+  isStarterLotLease,
+  isStarterLotLeaseCandidate
+} from '~/lib/starterPacks';
+import {
   getEntityCrew,
   getLotLeaseAuctionStatus,
   getLotLeasePayment,
@@ -193,6 +198,13 @@ const FormAgreement = ({
     !isExpiredLeaseRenewal
   ), [auctionStatus?.expiredAgreement, currentPolicy?.policyType, isExpiredLeaseRenewal, isLotLease]);
   const isLeaseExtension = isExtension || isExpiredLeaseRenewal;
+  const starterLotLeaseCandidate = useMemo(() => (
+    currentPolicy?.policyType === Permission.POLICY_IDS.PREPAID
+    && !isLeaseExtension
+    && !isAuctionPurchase
+    && daysToSeconds(currentPolicy?.policyDetails?.initialTerm || 0) <= STARTER_LOT_LEASE_TERM
+    && isStarterLotLeaseCandidate({ asteroid, crew, lot: entity, permission })
+  ), [asteroid, crew, currentPolicy, entity, isAuctionPurchase, isLeaseExtension, permission]);
   const paymentAgreement = isExpiredLeaseRenewal ? auctionStatus?.expiredAgreement : currentAgreementRaw;
   const auctionDetails = useMemo(() => {
     if (!isAuctionPurchase) return null;
@@ -217,10 +229,12 @@ const FormAgreement = ({
     if (isLeaseExtension && paymentAgreement?.endTime > now) {
       return 365 - secondsToDays(Math.max(0, paymentAgreement?.endTime - paymentAgreement?.startTime));
     }
+    if (starterLotLeaseCandidate) return secondsToDays(STARTER_LOT_LEASE_TERM);
     return 365;
-  }, [isLeaseExtension, paymentAgreement]);
+  }, [isLeaseExtension, paymentAgreement, starterLotLeaseCandidate]);
 
   const maxTermFloored = useMemo(() => Math.floor(maxTerm * 10) / 10, [maxTerm]);
+  const maxTermInput = starterLotLeaseCandidate ? maxTerm : maxTermFloored;
 
   const minTerm = useMemo(() => {
     return (isLeaseExtension) ? 1 : currentPolicy?.policyDetails?.initialTerm || 0
@@ -231,6 +245,7 @@ const FormAgreement = ({
       ? secondsToDays(pendingChange.vars.term || pendingChange.vars.added_term)
       : (isLeaseExtension ? Math.min(maxTermFloored, 30) : (currentPolicy?.policyDetails?.initialTerm || 0))
   );
+  const displayedInitialPeriod = starterLotLeaseCandidate ? 30 : initialPeriod;
 
   const remainingPeriod = useMemo(() => currentAgreement?.endTime - blockTime, [blockTime, currentAgreement?.endTime]);
   const refundablePeriod = useMemo(() => Math.max(0, remainingPeriod - monthsToSeconds(currentAgreement?.noticePeriod)), [currentAgreement?.noticePeriod, remainingPeriod]);
@@ -269,7 +284,7 @@ const FormAgreement = ({
       return [
         {
           label: `${isLeaseExtension ? 'Added ' : ''}Lease Length`,
-          value: `${initialPeriod} day${initialPeriod === 1 ? '' : 's'}`,
+          value: `${displayedInitialPeriod} day${displayedInitialPeriod === 1 ? '' : 's'}`,
         },
         {
           label: 'Notice Period',
@@ -300,10 +315,20 @@ const FormAgreement = ({
       ];
     }
     return [];
-  }, [auctionDetails, auctionPayment, auctionStatus, crew, currentPolicy, initialPeriod, isAuctionPurchase, isLeaseExtension, isTermination, paymentAgreement, remainingPeriod]);
+  }, [auctionDetails, auctionPayment, auctionStatus, crew, currentPolicy, displayedInitialPeriod, isAuctionPurchase, isLeaseExtension, isTermination, paymentAgreement, remainingPeriod]);
 
-  const term = useMemo(() => Math.round(daysToSeconds(initialPeriod || 0)), [initialPeriod]);
+  const term = useMemo(
+    () => starterLotLeaseCandidate
+      ? STARTER_LOT_LEASE_TERM
+      : Math.round(daysToSeconds(initialPeriod || 0)),
+    [initialPeriod, starterLotLeaseCandidate]
+  );
+  const usingStarterLotLease = useMemo(() => (
+    starterLotLeaseCandidate
+    && isStarterLotLease({ asteroid, crew, lot: entity, permission, term })
+  ), [asteroid, crew, entity, permission, starterLotLeaseCandidate, term]);
   const termPrice = useMemo(() => {
+    if (usingStarterLotLease) return 0n;
     const rate = isLeaseExtension
       ? paymentAgreement?.rate
       : Math.floor((currentPolicy?.policyDetails?.rate || 0) * TOKEN_SCALE[TOKEN.SWAY]);
@@ -314,7 +339,7 @@ const FormAgreement = ({
       rate,
       term
     });
-  }, [blockTime, currentPolicy?.policyDetails?.rate, isLeaseExtension, paymentAgreement, term]);
+  }, [blockTime, currentPolicy?.policyDetails?.rate, isLeaseExtension, paymentAgreement, term, usingStarterLotLease]);
   const displayedRatePerDay = useMemo(() => (
     isLeaseExtension && paymentAgreement?.rate !== undefined
       ? toSway(paymentAgreement.rate) * 24
@@ -391,8 +416,8 @@ const FormAgreement = ({
 
   const onEnterAgreement = useCallback(() => {
     const recipient = controller?.Crew?.delegatedTo;
-    enterAgreement({ auctionPayment, recipient, term, termPrice });
-  }, [auctionPayment, controller?.Crew?.delegatedTo, enterAgreement, term, termPrice]);
+    enterAgreement({ auctionPayment, isStarterLotLease: usingStarterLotLease, recipient, term, termPrice });
+  }, [auctionPayment, controller?.Crew?.delegatedTo, enterAgreement, term, termPrice, usingStarterLotLease]);
 
   const onExtendAgreement = useCallback(() => {
     const recipient = controller?.Crew?.delegatedTo;
@@ -444,24 +469,26 @@ const FormAgreement = ({
     }
     return {
       icon: entity.label === Entity.IDS.LOT ? <FormLotAgreementIcon /> : <FormAgreementIcon />,
-      label: isAuctionPurchase ? 'Lease Auctioned Lot' : `Form ${entity.label === Entity.IDS.LOT ? 'Lot' : 'Asset'} Agreement`,
+      label: usingStarterLotLease
+        ? 'Use Starter Lot Lease'
+        : (isAuctionPurchase ? 'Lease Auctioned Lot' : `Form ${entity.label === Entity.IDS.LOT ? 'Lot' : 'Asset'} Agreement`),
       status: stage === actionStages.NOT_STARTED
-        ? (policyType === Permission.POLICY_IDS.PREPAID ? 'Prepaid Lease' : 'Custom Contract')
+        ? (usingStarterLotLease ? 'Starter Pack' : (policyType === Permission.POLICY_IDS.PREPAID ? 'Prepaid Lease' : 'Custom Contract'))
         : undefined,
-      goLabel: isAuctionPurchase ? 'Lease Lot' : 'Create Agreement',
+      goLabel: usingStarterLotLease || isAuctionPurchase ? 'Lease Lot' : 'Create Agreement',
       onGo: onEnterAgreement
     }
-  }, [currentAgreement?.noticePeriod, currentPolicy?.policyType, entity, isAuctionPurchase, isExpiredLeaseRenewal, isExtension, isTermination, onEnterAgreement, onExtendAgreement, onTerminateAgreement, stage]);
+  }, [currentAgreement?.noticePeriod, currentPolicy?.policyType, entity, isAuctionPurchase, isExpiredLeaseRenewal, isExtension, isTermination, onEnterAgreement, onExtendAgreement, onTerminateAgreement, stage, usingStarterLotLease]);
 
   const disableGo = useMemo(() => {
     if (insufficientAssets) return true;
     if (isAuctionPurchase && !auctionStatus?.isAuctionAvailable) return true;
     if (auctionRecipientsLoading) return true;
     if (isTermination && currentAgreement?._canGiveNoticeStart > blockTime) return true;
-    if (initialPeriod === '' || initialPeriod <= 0) return true;
+    if (!starterLotLeaseCandidate && (initialPeriod === '' || initialPeriod <= 0)) return true;
     return false;
-  }, [auctionRecipientsLoading, auctionStatus?.isAuctionAvailable, blockTime, initialPeriod, insufficientAssets, isAuctionPurchase, isTermination, currentAgreement]);
-  const leasePeriodInvalid = !isTermination && (isLeaseExtension || currentPolicy?.policyType === Permission.POLICY_IDS.PREPAID) && (initialPeriod === '' || initialPeriod <= 0);
+  }, [auctionRecipientsLoading, auctionStatus?.isAuctionAvailable, blockTime, initialPeriod, insufficientAssets, isAuctionPurchase, isTermination, currentAgreement, starterLotLeaseCandidate]);
+  const leasePeriodInvalid = !starterLotLeaseCandidate && !isTermination && (isLeaseExtension || currentPolicy?.policyType === Permission.POLICY_IDS.PREPAID) && (initialPeriod === '' || initialPeriod <= 0);
   return (
     <>
       <ActionDialogHeader
@@ -550,33 +577,35 @@ const FormAgreement = ({
                 </InputLabel>
                 <TextInputWrapper rightLabel="days">
                   <LeasePeriodTextInput
-                    disabled={stage !== actionStages.NOT_STARTED}
+                    disabled={starterLotLeaseCandidate || stage !== actionStages.NOT_STARTED}
                     $invalid={leasePeriodInvalid}
                     min={minTerm}
-                    max={maxTermFloored}
+                    max={maxTermInput}
                     onBlur={handlePeriodBlur}
                     onChange={handlePeriodChange}
                     step={1}
                     type="number"
-                    value={initialPeriod} />
+                    value={displayedInitialPeriod} />
                 </TextInputWrapper>
-                <InputSublabels>
-                  {isLeaseExtension
-                    ? <div>Min <b>{minTerm} day</b></div>
-                    : <div>Min <b>{formatFixed(currentPolicy?.policyDetails?.initialTerm || 0, 2)} day{currentPolicy?.policyDetails?.initialTerm === 1 ? '' : 's'}</b></div>
-                  }
-                  <div>Max <b>{formatFixed(maxTermFloored, 1)} days</b></div>
-                </InputSublabels>
+                {!starterLotLeaseCandidate && (
+                  <InputSublabels>
+                    {isLeaseExtension
+                      ? <div>Min <b>{minTerm} day</b></div>
+                      : <div>Min <b>{formatFixed(currentPolicy?.policyDetails?.initialTerm || 0, 2)} day{currentPolicy?.policyDetails?.initialTerm === 1 ? '' : 's'}</b></div>
+                    }
+                    <div>Max <b>{formatFixed(maxTermFloored, 1)} days</b></div>
+                  </InputSublabels>
+                )}
               </FormSection>
 
               <FormSection>
                 <InputLabel>
                   <label>Price</label>
                 </InputLabel>
-                <TextInputWrapper rightLabel="SWAY / day">
+                <TextInputWrapper rightLabel={usingStarterLotLease ? undefined : 'SWAY / day'}>
                   <DisabledUncontrolledTextInput
                     disabled
-                    value={formatFixed(displayedRatePerDay)} />
+                    value={usingStarterLotLease ? 'Included' : formatFixed(displayedRatePerDay)} />
                 </TextInputWrapper>
               </FormSection>
 
@@ -661,8 +690,8 @@ const FormAgreement = ({
                             : (
                               <>
                                 {isExpiredLeaseRenewal
-                                  ? <>Restored For: <b>{' '}{initialPeriod} days</b></>
-                                  : <>Granted For: <b>{' '}{initialPeriod} days</b></>
+                                  ? <>Restored For: <b>{' '}{displayedInitialPeriod} days</b></>
+                                  : <>Granted For: <b>{' '}{displayedInitialPeriod} days</b></>
                                 }
                               </>
                             )
@@ -671,7 +700,10 @@ const FormAgreement = ({
                         <div style={{ position: 'relative', top: 4 }}>
                           <span style={{ position: 'relative', bottom: 4 }}>Total:</span>
                           <span style={{ color: 'white', display: 'inline-flex', fontSize: '32px', height: '32px', lineHeight: '32px' }}>
-                            <SwayIcon /> <span>{formatFixed(totalLeaseCost)}</span>
+                            {usingStarterLotLease
+                              ? <span>Included</span>
+                              : <><SwayIcon /> <span>{formatFixed(totalLeaseCost)}</span></>
+                            }
                           </span>
                         </div>
                       </div>

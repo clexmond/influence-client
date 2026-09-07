@@ -148,7 +148,9 @@ const TopRightSlot = styled.div`
   z-index: 3;
 `;
 
-const BottomLeft = styled.div``;
+const BottomLeft = styled.div`
+  margin-top: auto;
+`;
 
 const LauncherDialog = ({ panes = [], preselect, singlePane, bottomLeftMenu, paneOverflow, initiallyCollapsed = false }) => {
   const dispatchLauncherPage = useStore(s => s.dispatchLauncherPage);
@@ -218,15 +220,14 @@ const LauncherDialog = ({ panes = [], preselect, singlePane, bottomLeftMenu, pan
                       </Tab>
                     );
                   })}
-                  {bottomLeftMenu && (
-                    <>
-                      <div style={{ flex: 1 }} />
-                      <BottomLeft>
-                        {bottomLeftMenu}
-                      </BottomLeft>
-                    </>
-                  )}
                 </>
+              )}
+              {bottomLeftMenu && (
+                <BottomLeft>
+                  {typeof bottomLeftMenu === 'function'
+                    ? bottomLeftMenu({ collapsed: menuCollapsed })
+                    : bottomLeftMenu}
+                </BottomLeft>
               )}
             </TabWrapper>
           )}
