@@ -17,6 +17,7 @@ const {
   isDevStarterPackPurchase,
   isStarterPackCheckoutActive,
   isStarterPackCustomizationDraftComplete,
+  hasStarterBuildingEntitlement,
   isStarterLotLease,
   isStarterLotLeaseCandidate,
   normalizeStarterPackProducts,
@@ -75,6 +76,27 @@ test('rejects non-Adalia, occupied, and overlong starter lot leases', () => {
     ...starterLeaseCandidate,
     term: STARTER_LOT_LEASE_TERM + 1
   })).toBe(false);
+});
+
+test('recognizes an available starter building entitlement', () => {
+  const crew = {
+    StarterPack: {
+      valid: true,
+      buildingAllowances: [
+        { buildingType: '1', count: 1 },
+        { buildingType: 2, count: 1 },
+        { buildingType: 3, count: 0 }
+      ]
+    }
+  };
+
+  expect(hasStarterBuildingEntitlement(crew, 1)).toBe(true);
+  expect(hasStarterBuildingEntitlement(crew, 3)).toBe(false);
+  expect(hasStarterBuildingEntitlement({
+    ...crew,
+    StarterPack: { ...crew.StarterPack, valid: false }
+  }, 1)).toBe(false);
+  expect(hasStarterBuildingEntitlement({ StarterPack: { valid: true } }, 1)).toBe(false);
 });
 
 test('builds a Stripe return URL with the literal Checkout session placeholder', () => {

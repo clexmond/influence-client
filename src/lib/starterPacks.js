@@ -35,6 +35,15 @@ export const isStarterLotLease = ({ term, ...candidate }) => (
   && Number(term) <= STARTER_LOT_LEASE_TERM
 );
 
+export const hasStarterBuildingEntitlement = (crew, buildingType) => (
+  crew?.StarterPack?.valid === true
+  && Array.isArray(crew.StarterPack.buildingAllowances)
+  && crew.StarterPack.buildingAllowances.some((allowance) => (
+    Number(allowance.buildingType) === Number(buildingType)
+    && Number(allowance.count) > 0
+  ))
+);
+
 const starterRestrictionSeconds = 14 * 24 * 60 * 60;
 const defaultStation = { label: Entity.IDS.BUILDING, id: 1 };
 const defaultClasses = [

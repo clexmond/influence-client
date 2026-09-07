@@ -12,6 +12,7 @@ import {
 import theme, { hexToRGB } from '~/theme';
 import useConstructionManager from '~/hooks/actionManagers/useConstructionManager';
 import { reactBool, formatTimer, getCrewAbilityBonuses } from '~/lib/utils';
+import { hasStarterBuildingEntitlement } from '~/lib/starterPacks';
 import {
   BuildingRequirementsSection,
   ActionDialogFooter,
@@ -61,6 +62,7 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
   const { currentDeliveryActions } = useDeliveryManager({ destination: lot?.building });
 
   const crew = useActionCrew(currentConstructionAction);
+  console.log(crew);
 
   const [crewTravelBonus, crewDistBonus, constructionBonus] = useMemo(() => {
     const bonusIds = [
@@ -169,12 +171,27 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
     props.onSetAction('SHOPPING_LIST', {});
   }, []);
 
+  const hasBuildingEntitlement = useMemo(() => hasStarterBuildingEntitlement(
+    crew,
+    lot?.building?.Building?.buildingType
+  ), [crew, lot?.building?.Building?.buildingType]);
+
   const [buildingRequirements, requirementsMet, waitingOnTransfer] = useMemo(() => {
     const reqs = getBuildingRequirements(lot?.building, constructionStatus === 'PLANNED' ? currentDeliveryActions : []);
-    const met = !reqs.find((req) => req.inNeed > 0);
-    const wait = reqs.find((req) => req.inTransit > 0);
+    const met = hasBuildingEntitlement || !reqs.find((req) => req.inNeed > 0);
+    const wait = !hasBuildingEntitlement && reqs.find((req) => req.inTransit > 0);
     return [reqs, constructionStatus === 'PLANNED' ? met : true, wait];
-  }, [lot?.building, constructionStatus, currentDeliveryActions]);
+  }, [lot?.building, constructionStatus, currentDeliveryActions, hasBuildingEntitlement]);
+
+  const displayedBuildingRequirements = useMemo(() => (
+    hasBuildingEntitlement
+      ? buildingRequirements.map((requirement) => ({
+        ...requirement,
+        inInventory: requirement.totalRequired,
+        inTransit: 0
+      }))
+      : buildingRequirements
+  ), [buildingRequirements, hasBuildingEntitlement]);
 
   return (
     <>
@@ -228,13 +245,13 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
           <BuildingRequirementsSection
             label={(
               <ReqTitle>
-                <span>Materials On Site</span>
+                <span>{hasBuildingEntitlement ? 'Materials Included by Starter Pack' : 'Materials On Site'}</span>
                 {!(requirementsMet && !waitingOnTransfer) && <span>This site is missing construction materials</span>}
               </ReqTitle>
             )}
             mode="gathering"
             requirementsMet={requirementsMet && !waitingOnTransfer}
-            requirements={buildingRequirements} />
+            requirements={displayedBuildingRequirements} />
         )}
 
         {stage === actionStage.NOT_STARTED && (
@@ -292,7 +309,7 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
         crewAvailableTime={crewTimeRequirement}
         taskCompleteTime={taskTimeRequirement}
         disabled={!requirementsMet || waitingOnTransfer}
-        goLabel="Construct"
+        goLabel={hasBuildingEntitlement ? 'Use Starter Pack Entitlement' : 'Construct'}
         onGo={startConstruction}
         finalizeLabel="Complete"
         isSequenceable
