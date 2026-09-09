@@ -5,6 +5,7 @@ import { hash, num, shortString, uint256 } from 'starknet';
 import { getQuotes, quoteToCalls } from '@avnu/avnu-sdk';
 
 import { appConfig } from '~/appConfig';
+import TransactionFeePrompt from '~/components/TransactionFeePrompt';
 import useActivitiesContext from '~/hooks/useActivitiesContext';
 import useCrewContext from '~/hooks/useCrewContext';
 import useSession from '~/hooks/useSession';
@@ -12,8 +13,9 @@ import useSimulationEnabled from '~/hooks/useSimulationEnabled';
 import useStore from '~/hooks/useStore';
 import { useUsdcPerEth } from '~/hooks/useSwapQuote';
 import useWalletPurchasableBalances from '~/hooks/useWalletPurchasableBalances';
-import { useSwayBalance } from '~/hooks/useWalletTokenBalance';
+import { useStrkBalance, useSwayBalance, useUSDCBalance } from '~/hooks/useWalletTokenBalance';
 import api from '~/lib/api';
+import { isSponsorshipUnavailable } from '~/lib/paymaster';
 import { cleanseTxHash, safeBigInt } from '~/lib/utils';
 import { TOKEN } from '~/lib/priceUtils';
 import { isWalletAccountLocked } from '~/lib/walletLock';
@@ -22,6 +24,8 @@ const RETRY_INTERVAL = 5e3; // 5 seconds
 const WALLET_RECONNECT_TIMEOUT = 30e3;
 const ChainTransactionContext = createContext();
 const EXPLICIT_AUTHORIZATION_PRIMARY_TYPE = 'InfluenceTransactionAuthorization';
+const PAYMASTER_FEE_TOKENS = [TOKEN.USDC, TOKEN.SWAY];
+const USER_REJECTED_TRANSACTION = /USER_REFUSED_OP|User abort|User rejected|Execute failed/i;
 
 // TODO: equalityTest default of 'i' doesn't make sense anymore
 
@@ -587,7 +591,7 @@ export function ChainTransactionProvider({ children }) {
     isDeployed,
     login,
     logout,
-    gasTokens,
+    paymasterTokens,
     provider,
     sessionWallet,
     upgradeInsecureSession,
@@ -599,6 +603,8 @@ export function ChainTransactionProvider({ children }) {
   const { crew } = useCrewContext();
   const { data: walletSource } = useWalletPurchasableBalances();
   const { data: swayBalanceSource } = useSwayBalance();
+  const { data: strkBalanceSource } = useStrkBalance();
+  const { data: usdcBalanceSource } = useUSDCBalance();
   const { data: usdcPerEth } = useUsdcPerEth();
   const simulationEnabled = useSimulationEnabled();
 
@@ -609,6 +615,12 @@ export function ChainTransactionProvider({ children }) {
 
   const swayRef = useRef();
   swayRef.current = swayBalanceSource;
+
+  const strkRef = useRef();
+  strkRef.current = strkBalanceSource;
+
+  const usdcRef = useRef();
+  usdcRef.current = usdcBalanceSource;
 
   const walletAccountRef = useRef();
   walletAccountRef.current = walletAccount;
@@ -622,9 +634,30 @@ export function ChainTransactionProvider({ children }) {
   const dispatchPendingTransaction = useStore(s => s.dispatchPendingTransaction);
   const dispatchPendingTransactionComplete = useStore(s => s.dispatchPendingTransactionComplete);
   const dispatchClearTransactionHistory = useStore(s => s.dispatchClearTransactionHistory);
+  const dispatchFeeTokenEnabled = useStore(s => s.dispatchFeeTokenEnabled);
+  const dispatchPaidFeesAcknowledged = useStore(s => s.dispatchPaidFeesAcknowledged);
+  const dispatchLauncherPage = useStore(s => s.dispatchLauncherPage);
+  const paidFeesAcknowledged = useStore(s => !!s.paidFeeAcknowledgements?.[accountAddress]);
 
   const [promptingTransaction, setPromptingTransaction] = useState(false);
+  const [feePrompt, setFeePrompt] = useState();
   const [nonce, setNonce] = useState();
+  const sponsorshipUnavailableRef = useRef(false);
+
+  useEffect(() => {
+    sponsorshipUnavailableRef.current = false;
+  }, [accountAddress, walletAccount]);
+
+  const requestFeePermission = useCallback((type) => new Promise((resolve) => {
+    setFeePrompt({ resolve, type });
+  }), []);
+
+  const resolveFeePrompt = useCallback((accepted) => {
+    setFeePrompt((current) => {
+      current?.resolve(accepted);
+      return undefined;
+    });
+  }, []);
 
   useEffect(() => {
     if (!walletAccount) return;
@@ -729,7 +762,11 @@ export function ChainTransactionProvider({ children }) {
       return { ...call, calldata: call.calldata.map(a => num.toHex(a)) };
     });
 
-    if (usePaymaster && walletCapabilities.requiresSponsoredTransactions) {
+    if (
+      usePaymaster
+      && walletCapabilities.requiresSponsoredTransactions
+      && !sponsorshipUnavailableRef.current
+    ) {
       if (!appConfig.get('Starknet.paymasterProxy')) {
         const error = new Error('Privy sponsorship requires the Influence paymaster proxy.');
         error.userMessage = 'Sponsored transactions are temporarily unavailable. Please try again shortly.';
@@ -747,55 +784,123 @@ export function ChainTransactionProvider({ children }) {
         }
       }
 
-      return account.executePaymasterTransaction(formattedCalls, {
-        feeMode: { mode: 'sponsored' },
-        ...(deploymentData ? { deploymentData } : {})
-      });
-    }
+      try {
+        return await account.executePaymasterTransaction(formattedCalls, {
+          feeMode: { mode: 'sponsored' },
+          ...(deploymentData ? { deploymentData } : {})
+        });
+      } catch (error) {
+        if (USER_REJECTED_TRANSACTION.test(error?.message || '')) throw error;
+        if (!isSponsorshipUnavailable(error)) throw error;
+        sponsorshipUnavailableRef.current = true;
 
-    // handle paymaster for gas (must be deployed)
-    let paymasterToken;
-
-    if (usePaymaster && isDeployed) {
-      for (let gasToken of gasTokens) {
-        try {
-          // get wallet balance of gas token
-          const gasTokenBalance = gasToken === appConfig.get('Starknet.Address.swayToken')
-            ? (swayRef.current || 0n)
-            : (walletRef.current?.tokenBalances[Address.toStandard(gasToken)] || 0n);
-
-          // if non-zero, check if have enough to cover estimated fee
-          // NOTE: if stark sponsoring fees, should allow zero balance in relevant token
-          if (gasTokenBalance > 0n) {
-            const feeMode = { mode: 'default', gasToken };
-            const fees = await account.estimatePaymasterTransactionFee(formattedCalls, { feeMode });
-            if (gasTokenBalance >= fees.suggested_max_fee_in_gas_token) {
-              paymasterToken = gasToken;
-              break;
-            }
+        if (!paidFeesAcknowledged) {
+          if (!(await requestFeePermission('TRANSITION'))) {
+            const cancellation = new Error('Paid network fees were not acknowledged.');
+            cancellation.suppressTransactionFailure = true;
+            throw cancellation;
           }
-        } catch (err) {
-          console.error('error estimating fee with token', gasToken, err);
+          dispatchPaidFeesAcknowledged(accountAddress);
         }
       }
     }
 
-    console.log('paymasterToken', paymasterToken, gasTokens);
-    if (paymasterToken) {
-      return await account.executePaymasterTransaction(formattedCalls, { feeMode: { mode: 'default', gasToken: paymasterToken } });
-    } else {
-      return await account.execute(formattedCalls, {});
+    if (!usePaymaster || !isDeployed) return account.execute(formattedCalls, {});
+
+    const estimationErrors = [];
+    const strkBalance = strkRef.current || 0n;
+    if (strkBalance > 0n) {
+      try {
+        const fees = await account.estimateInvokeFee(formattedCalls);
+        if (strkBalance >= fees.overall_fee) return account.execute(formattedCalls, {});
+      } catch (error) {
+        estimationErrors.push(error);
+      }
     }
+
+    const feeEstimateCache = new Map();
+    const getPaymasterFee = async (gasToken) => {
+      if (feeEstimateCache.has(gasToken)) return feeEstimateCache.get(gasToken);
+
+      const supported = !(paymasterTokens?.length > 0)
+        || paymasterTokens.some((token) => Address.areEqual(token.token_address, gasToken));
+      if (!supported) return null;
+
+      try {
+        const feeMode = { mode: 'default', gasToken };
+        const fees = await account.estimatePaymasterTransactionFee(formattedCalls, { feeMode });
+        feeEstimateCache.set(gasToken, fees);
+        return fees;
+      } catch (error) {
+        estimationErrors.push(error);
+        feeEstimateCache.set(gasToken, null);
+        return null;
+      }
+    };
+
+    const getBalance = (gasToken) => (
+      Address.areEqual(gasToken, TOKEN.USDC)
+        ? (usdcRef.current || 0n)
+        : (swayRef.current || 0n)
+    );
+
+    const canPayWith = async (gasToken) => {
+      const balance = getBalance(gasToken);
+      if (balance <= 0n) return false;
+      const fees = await getPaymasterFee(gasToken);
+      return !!fees && balance >= fees.suggested_max_fee_in_gas_token;
+    };
+
+    const executeWithGasToken = (gasToken) => account.executePaymasterTransaction(formattedCalls, {
+      feeMode: { mode: 'default', gasToken }
+    });
+
+    for (const gasToken of PAYMASTER_FEE_TOKENS) {
+      const enabled = gameplay.feeTokens?.some((enabledToken) => Address.areEqual(enabledToken, gasToken));
+      if (enabled && await canPayWith(gasToken)) {
+        return executeWithGasToken(gasToken);
+      }
+    }
+
+    for (const gasToken of PAYMASTER_FEE_TOKENS) {
+      const enabled = gameplay.feeTokens?.some((enabledToken) => Address.areEqual(enabledToken, gasToken));
+      if (enabled || !(await canPayWith(gasToken))) continue;
+
+      const tokenName = Address.areEqual(gasToken, TOKEN.USDC) ? 'USDC' : 'SWAY';
+      if (!(await requestFeePermission(tokenName))) {
+        const error = new Error('Fee payment permission was not granted.');
+        error.suppressTransactionFailure = true;
+        throw error;
+      }
+
+      dispatchFeeTokenEnabled(gasToken);
+      return executeWithGasToken(gasToken);
+    }
+
+    if (estimationErrors.length > 0) throw estimationErrors[0];
+
+    const openWallet = await requestFeePermission('TOP_UP');
+    if (openWallet) dispatchLauncherPage('store', 'sway');
+
+    const error = new Error('Wallet balance is too low to pay the network fee.');
+    error.suppressTransactionFailure = true;
+    throw error;
   }, [
     accountAddress,
     accountDeploymentData,
     allowedMethods,
     createAlert,
     chainId,
-    gasTokens,
+    dispatchFeeTokenEnabled,
+    dispatchLauncherPage,
+    dispatchPaidFeesAcknowledged,
+    gameplay.feeTokens,
     isDeployed,
     nonce,
+    paymasterTokens,
+    paidFeesAcknowledged,
     provider,
+    requestFeePermission,
     sessionWallet,
     requireSessionUpgrade,
     walletCapabilities.requiresSponsoredTransactions
@@ -1238,7 +1343,7 @@ export function ChainTransactionProvider({ children }) {
     // TODO: in Braavos, is "Execute failed" a generic error? in that case, we should still show
     // (and it will just be annoying that it shows a failure on declines)
     // console.log('failed', e);
-    if (!/USER_REFUSED_OP|User abort|User rejected|Execute failed|Timeout/.test(e?.message) && txDetails) {
+    if (!e?.suppressTransactionFailure && !/USER_REFUSED_OP|User abort|User rejected|Execute failed|Timeout/.test(e?.message) && txDetails) {
       dispatchFailedTransaction({
         ...txDetails,
         txHash: null,
@@ -1541,6 +1646,13 @@ export function ChainTransactionProvider({ children }) {
       promptingTransaction
     }}>
       {children}
+      {feePrompt && (
+        <TransactionFeePrompt
+          onConfirm={() => resolveFeePrompt(true)}
+          onReject={() => resolveFeePrompt(false)}
+          type={feePrompt.type}
+        />
+      )}
     </ChainTransactionContext.Provider>
   );
 };

@@ -19,9 +19,37 @@ export const barebonesCrewmateAppearance = '0x1200010000000000041';
 // Must stay aligned with STARTER_LOT_TERM in AcceptPrepaidAgreement.
 export const STARTER_LOT_LEASE_TERM = 2628000;
 
+const hasValidStarterPack = (crew) => crew?.StarterPack?.valid === true;
+
+const hasStarterPackAllowance = (crew, allowance) => (
+  hasValidStarterPack(crew)
+  && Number(crew.StarterPack[allowance]) > 0
+);
+
+const getStarterPackEntitlementSource = (crew, allowance) => (
+  hasStarterPackAllowance(crew, allowance)
+    ? { id: 0, label: 0, slot: 0 }
+    : null
+);
+
+export const hasStarterCoreSampleEntitlement = (crew) => (
+  hasStarterPackAllowance(crew, 'coreSampleAllowance')
+);
+
+export const getStarterCoreSampleSource = (crew) => (
+  getStarterPackEntitlementSource(crew, 'coreSampleAllowance')
+);
+
+export const hasStarterFoodSupplyEntitlement = (crew) => (
+  hasStarterPackAllowance(crew, 'foodReloadAllowance')
+);
+
+export const getStarterFoodSupplySource = (crew) => (
+  getStarterPackEntitlementSource(crew, 'foodReloadAllowance')
+);
+
 export const isStarterLotLeaseCandidate = ({ asteroid, crew, lot, permission }) => (
-  crew?.StarterPack?.valid === true
-  && Number(crew.StarterPack.lotAllowance) > 0
+  hasStarterPackAllowance(crew, 'lotAllowance')
   && Number(asteroid?.id) === 1
   && Number(lot?.label) === Entity.IDS.LOT
   && Number(permission) === Permission.IDS.USE_LOT
@@ -36,7 +64,7 @@ export const isStarterLotLease = ({ term, ...candidate }) => (
 );
 
 export const hasStarterBuildingEntitlement = (crew, buildingType) => (
-  crew?.StarterPack?.valid === true
+  hasValidStarterPack(crew)
   && Array.isArray(crew.StarterPack.buildingAllowances)
   && crew.StarterPack.buildingAllowances.some((allowance) => (
     Number(allowance.buildingType) === Number(buildingType)

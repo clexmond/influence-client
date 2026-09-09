@@ -3,13 +3,11 @@ import { useMemo } from 'react';
 import { asteroidPrice, TOKEN } from '~/lib/priceUtils';
 import usePriceConstants from '~/hooks/usePriceConstants';
 import usePriceHelper from '~/hooks/usePriceHelper';
-import useStore from '~/hooks/useStore';
 import { safeBigInt } from '~/lib/utils';
 
 const UserPrice = ({ price, priceToken, format, outputToken }) => {
   const priceHelper = usePriceHelper();
-  const preferredUiCurrency = useStore(s => s.getPreferredUiCurrency());
-  const displayToken = outputToken || preferredUiCurrency;
+  const displayToken = outputToken || TOKEN.USDC;
 
   if (!priceToken || priceToken === 'undefined') return <>-</>;
   return (

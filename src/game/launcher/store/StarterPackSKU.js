@@ -34,6 +34,7 @@ import {
 } from '~/game/interface/details/CrewDetails';
 import { CrewmateDesigner } from '~/game/interface/details/crewAssignments/Create';
 import useSession from '~/hooks/useSession';
+import useCrewContext from '~/hooks/useCrewContext';
 import useNameAvailability from '~/hooks/useNameAvailability';
 import useStarterPacks from '~/hooks/useStarterPacks';
 import useStore from '~/hooks/useStore';
@@ -1316,6 +1317,7 @@ const StarterPackDevTools = ({
 const StarterPackSKU = () => {
   const queryClient = useQueryClient();
   const { accountAddress, authenticated, isDeployed, login, walletCapabilities } = useSession();
+  const { crew: selectedCrew, crews, loading: crewsLoading } = useCrewContext();
   const { deployAccount } = useContext(ChainTransactionContext);
   const createAlert = useStore(s => s.dispatchAlertLogged);
   const starterPackCheckout = useStore(s => s.starterPackCheckout);
@@ -1345,6 +1347,7 @@ const StarterPackSKU = () => {
   const [checkoutAcknowledged, setCheckoutAcknowledged] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deployingAccount, setDeployingAccount] = useState(false);
+  const [provisionedCrewId, setProvisionedCrewId] = useState();
   const completedPurchaseRef = useRef();
   const accountSetupPurchaseRef = useRef();
   const accountSetupInFlightRef = useRef();
@@ -1557,11 +1560,13 @@ const StarterPackSKU = () => {
     ) return;
 
     completedPurchaseRef.current = purchase.id;
+    setProvisionedCrewId(grantedCrewId);
     queryClient.setQueryData(ownedCrewsQueryKey, (current = []) => {
-      if (current.some((crew) => crew.id === grantedCrewId)) return current;
+      if (current.some((crew) => crew.id === grantedCrewId)) {
+        return current.map((crew) => crew.id === grantedCrewId ? grantedCrew : crew);
+      }
       return [...current, grantedCrew];
     });
-    queryClient.invalidateQueries({ queryKey: ownedCrewsQueryKey });
     queryClient.invalidateQueries({ queryKey: ['entities', Entity.IDS.CREWMATE] });
 
     queryClient.setQueryData(['starterPackPending', accountAddress], { purchase: null });
@@ -1579,23 +1584,10 @@ const StarterPackSKU = () => {
     setSelectedProductId(undefined);
     setDevPurchase(null);
 
-    dispatchCrewSelected(grantedCrewId);
-    dispatchHudMenuOpened('MY_CREWS');
     dispatchStarterPackCustomizationDraftCleared(purchase.id);
     dispatchStarterPackCheckoutCleared();
-    dispatchLauncherPage('play');
-    createAlert({
-      type: 'GenericAlert',
-      level: 'success',
-      data: { content: 'Crewmate recruitment complete. See you in the belt captain!' },
-      duration: 10000
-    });
   }, [
     accountAddress,
-    createAlert,
-    dispatchCrewSelected,
-    dispatchHudMenuOpened,
-    dispatchLauncherPage,
     dispatchStarterPackCheckoutCleared,
     dispatchStarterPackCustomizationDraftCleared,
     effectiveCheckoutSessionId,
@@ -1604,6 +1596,41 @@ const StarterPackSKU = () => {
     ownedCrewsQueryKey,
     purchase?.id,
     queryClient
+  ]);
+
+  useEffect(() => {
+    if (!provisionedCrewId || crewsLoading) return;
+
+    const provisionedCrew = crews?.find((crew) => crew.id === provisionedCrewId);
+    const roster = provisionedCrew?.Crew?.roster || [];
+    const rosterReady = roster.length > 0 && roster.every((crewmateId) => (
+      provisionedCrew._crewmates?.some((crewmate) => crewmate.id === crewmateId)
+    ));
+    if (!rosterReady) return;
+
+    if (selectedCrew?.id !== provisionedCrewId) {
+      dispatchCrewSelected(provisionedCrewId);
+      return;
+    }
+
+    setProvisionedCrewId(undefined);
+    dispatchHudMenuOpened('MY_CREWS');
+    dispatchLauncherPage('play');
+    createAlert({
+      type: 'GenericAlert',
+      level: 'success',
+      data: { content: 'Crewmate recruitment complete. See you in the belt captain!' },
+      duration: 10000
+    });
+  }, [
+    createAlert,
+    crews,
+    crewsLoading,
+    dispatchCrewSelected,
+    dispatchHudMenuOpened,
+    dispatchLauncherPage,
+    provisionedCrewId,
+    selectedCrew?.id
   ]);
 
   const refreshPurchases = useCallback(() => {

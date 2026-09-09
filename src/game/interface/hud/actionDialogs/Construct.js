@@ -62,7 +62,6 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
   const { currentDeliveryActions } = useDeliveryManager({ destination: lot?.building });
 
   const crew = useActionCrew(currentConstructionAction);
-  console.log(crew);
 
   const [crewTravelBonus, crewDistBonus, constructionBonus] = useMemo(() => {
     const bonusIds = [
@@ -245,7 +244,7 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
           <BuildingRequirementsSection
             label={(
               <ReqTitle>
-                <span>{hasBuildingEntitlement ? 'Materials Included by Starter Pack' : 'Materials On Site'}</span>
+                <span>{hasBuildingEntitlement ? 'Materials included in Starter Pack' : 'Materials On Site'}</span>
                 {!(requirementsMet && !waitingOnTransfer) && <span>This site is missing construction materials</span>}
               </ReqTitle>
             )}
@@ -309,7 +308,7 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
         crewAvailableTime={crewTimeRequirement}
         taskCompleteTime={taskTimeRequirement}
         disabled={!requirementsMet || waitingOnTransfer}
-        goLabel={hasBuildingEntitlement ? 'Use Starter Pack Entitlement' : 'Construct'}
+        goLabel={hasBuildingEntitlement ? 'Construct with Starter Pack' : 'Construct'}
         onGo={startConstruction}
         finalizeLabel="Complete"
         isSequenceable

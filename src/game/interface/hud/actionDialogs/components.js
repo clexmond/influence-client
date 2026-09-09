@@ -3064,6 +3064,8 @@ export const OrderSelectionDialog = ({
   useInterval(() => { refetchResourceMarketplaces(); }, 60e3); // keep things loosely fresh
 
   const orders = useMemo(() => {
+    if (targetAmount <= 0) return [];
+
     return exchanges.reduce((aggOrders, row) => {
       const exchangeDistance = Asteroid.getLotDistance(asteroidId, Lot.toIndex(row.lotId), Lot.toIndex(destLotId));
       const exchangeTravelTime = Time.toRealDuration(
@@ -3086,6 +3088,8 @@ export const OrderSelectionDialog = ({
           );
 
           const fill = fills[0];
+          if (!fill) return null;
+
           fill.price = fill.price * TOKEN_SCALE[TOKEN.SWAY];
           return {
             _orderPath: `${fill.crew.uuid}.${fill.entity.uuid}.${fill.orderType}.${fill.product}.${fill.price}.${fill.storage.uuid}.${fill.storageSlot}`,
@@ -3096,6 +3100,8 @@ export const OrderSelectionDialog = ({
             ...fill,
           };
         })
+
+        .filter(Boolean)
 
         .sort((a, b) => a._adjUnitPrice - b._adjUnitPrice)
 

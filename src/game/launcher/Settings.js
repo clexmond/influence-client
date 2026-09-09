@@ -376,13 +376,10 @@ const GameplayPane = () => {
 
   const crewTutorials = useStore(s => s.crewTutorials);
   const gameplay = useStore(s => s.gameplay);
-  const preferredUiCurrency = useStore(s => s.getPreferredUiCurrency());
-  const toggleAutoswap = useStore(s => s.dispatchAutoswapEnabled);
   const createAlert = useStore(s => s.dispatchAlertLogged);
   
   const dispatchActiveCrewsDisplaySet = useStore(s => s.dispatchActiveCrewsDisplaySet);
   const dispatchDismissCrewTutorial = useStore(s => s.dispatchDismissCrewTutorial);
-  const dispatchPreferredUiCurrency = useStore(s => s.dispatchPreferredUiCurrency);
   const dispatchTutorialDisabled = useStore(s => s.dispatchTutorialDisabled);
   const dispatchUseSessionsSet = useStore(s => s.dispatchUseSessionsSet);
   const dispatchFeeTokenToggle = useStore(s => s.dispatchFeeTokenToggle);
@@ -454,33 +451,6 @@ const GameplayPane = () => {
             </ControlGroup>
           </CheckboxRow>
 
-          <CheckboxRow>
-            <label>Price Display:</label>
-            <ControlGroup>
-              <Button
-                active={preferredUiCurrency === TOKEN.USDC}
-                onClick={() => dispatchPreferredUiCurrency(TOKEN.USDC)}>
-                USDC
-              </Button>
-              <Button
-                active={preferredUiCurrency === TOKEN.ETH}
-                onClick={() => dispatchPreferredUiCurrency(TOKEN.ETH)}>
-                ETH
-              </Button>
-            </ControlGroup>
-          </CheckboxRow>
-
-          <CheckboxRow>
-            <label>Autoswap ETH ⇌ USDC:</label>
-            <div onClick={() => toggleAutoswap(!gameplay.autoswap)}>
-              {gameplay.autoswap ? <CheckedIcon /> : <UncheckedIcon />}
-              <span>
-                Automatically swap ETH ⇌ USDC as needed for purchases. Swap requests
-                for the appropriate amount will be included with the purchase request.
-              </span>
-            </div>
-          </CheckboxRow>
-
           {/* <CheckboxRow>
             <label>Show Welcome Tour:</label>
             <div onClick={() => dispatchWelcomeTourDisabled(!gameplay.dismissWelcomeTour)}>
@@ -534,30 +504,19 @@ const GameplayPane = () => {
 
           <StyledDataReadout label="Use for Gas Fees">
             <ControlGroup>
-              {/* TODO: could have this use paymaster supported tokens if want to add in future */}
-              <Button
-                active={gameplay.feeTokens.includes(TOKEN.SWAY)}
-                onClick={() => dispatchFeeTokenToggle(TOKEN.SWAY)}>
-                SWAY
-              </Button>
               <Button
                 active={gameplay.feeTokens.includes(TOKEN.USDC)}
                 onClick={() => dispatchFeeTokenToggle(TOKEN.USDC)}>
                 USDC
               </Button>
               <Button
-                active={gameplay.feeTokens.includes(TOKEN.ETH)}
-                onClick={() => dispatchFeeTokenToggle(TOKEN.ETH)}>
-                ETH
-              </Button>
-              <Button
-                active={gameplay.feeTokens.includes(TOKEN.STRK)}
-                onClick={() => dispatchFeeTokenToggle(TOKEN.STRK)}>
-                STRK
+                active={gameplay.feeTokens.includes(TOKEN.SWAY)}
+                onClick={() => dispatchFeeTokenToggle(TOKEN.SWAY)}>
+                SWAY
               </Button>
             </ControlGroup>
           </StyledDataReadout>
-          <HelperText>Selected token balances will be applied to gas fees in this order.</HelperText>
+          <HelperText>STRK is used first. Selected AVNU fee tokens are used as fallbacks.</HelperText>
         </div>
       </Section>
     </StyledSettings>

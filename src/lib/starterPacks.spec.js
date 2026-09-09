@@ -14,10 +14,14 @@ const {
   createSeededStarterPackCrewmates,
   createStarterPackCheckoutState,
   createStarterPackCustomizationDraft,
+  getStarterFoodSupplySource,
+  getStarterCoreSampleSource,
   isDevStarterPackPurchase,
   isStarterPackCheckoutActive,
   isStarterPackCustomizationDraftComplete,
   hasStarterBuildingEntitlement,
+  hasStarterCoreSampleEntitlement,
+  hasStarterFoodSupplyEntitlement,
   isStarterLotLease,
   isStarterLotLeaseCandidate,
   normalizeStarterPackProducts,
@@ -97,6 +101,42 @@ test('recognizes an available starter building entitlement', () => {
     StarterPack: { ...crew.StarterPack, valid: false }
   }, 1)).toBe(false);
   expect(hasStarterBuildingEntitlement({ StarterPack: { valid: true } }, 1)).toBe(false);
+});
+
+test('recognizes a remaining starter core sample entitlement', () => {
+  const crew = {
+    StarterPack: { valid: true, coreSampleAllowance: '5' }
+  };
+
+  expect(hasStarterCoreSampleEntitlement(crew)).toBe(true);
+  expect(getStarterCoreSampleSource(crew)).toEqual({ id: 0, label: 0, slot: 0 });
+  expect(hasStarterCoreSampleEntitlement({
+    StarterPack: { valid: true, coreSampleAllowance: 0 }
+  })).toBe(false);
+  expect(hasStarterCoreSampleEntitlement({
+    StarterPack: { valid: false, coreSampleAllowance: 5 }
+  })).toBe(false);
+  expect(getStarterCoreSampleSource({
+    StarterPack: { valid: true, coreSampleAllowance: 0 }
+  })).toBeNull();
+});
+
+test('recognizes a remaining starter food supply entitlement', () => {
+  const crew = {
+    StarterPack: { valid: true, foodReloadAllowance: '1' }
+  };
+
+  expect(hasStarterFoodSupplyEntitlement(crew)).toBe(true);
+  expect(getStarterFoodSupplySource(crew)).toEqual({ id: 0, label: 0, slot: 0 });
+  expect(hasStarterFoodSupplyEntitlement({
+    StarterPack: { valid: true, foodReloadAllowance: 0 }
+  })).toBe(false);
+  expect(hasStarterFoodSupplyEntitlement({
+    StarterPack: { valid: false, foodReloadAllowance: 1 }
+  })).toBe(false);
+  expect(getStarterFoodSupplySource({
+    StarterPack: { valid: true, foodReloadAllowance: 0 }
+  })).toBeNull();
 });
 
 test('builds a Stripe return URL with the literal Checkout session placeholder', () => {

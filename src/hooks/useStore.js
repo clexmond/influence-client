@@ -200,10 +200,9 @@ const useStore = create(
 
         gameplay: {
           activeCrewsDisplay: 'all', // selected, delegated, all
-          autoswap: true,
           dismissTutorial: false,
           feeToken: null, // deprecated
-          feeTokens: [TOKEN.SWAY, TOKEN.USDC],
+          feeTokens: [TOKEN.USDC],
           useSessions: null
         },
 
@@ -228,6 +227,7 @@ const useStore = create(
 
         failedTransactions: [],
         pendingTransactions: [],
+        paidFeeAcknowledgements: {},
 
         lotLoader: {
           id: null,
@@ -238,7 +238,6 @@ const useStore = create(
 
         referrer: null,
 
-        preferredUiCurrency: null,
 
         dmPrivateKey: null,
 
@@ -937,14 +936,6 @@ const useStore = create(
           state.perProcessLeases.push({ key, endTime });
         })),
 
-        dispatchPreferredUiCurrency: (token) => set(produce(state => {
-          state.preferredUiCurrency = token;
-        })),
-
-        dispatchAutoswapEnabled: (which) => set(produce(state => {
-          state.gameplay.autoswap = !!which;
-        })),
-
         dispatchTutorialDisabled: (which) => set(produce(state => {
           state.gameplay.dismissTutorial = !!which;
         })),
@@ -959,6 +950,16 @@ const useStore = create(
           } else {
             state.gameplay.feeTokens.push(which);
           }
+        })),
+
+        dispatchFeeTokenEnabled: (which) => set(produce(state => {
+          if (!state.gameplay.feeTokens.includes(which)) state.gameplay.feeTokens.push(which);
+        })),
+
+        dispatchPaidFeesAcknowledged: (accountAddress) => set(produce(state => {
+          if (!accountAddress) return;
+          if (!state.paidFeeAcknowledgements) state.paidFeeAcknowledgements = {};
+          state.paidFeeAcknowledgements[accountAddress] = true;
         })),
 
         dispatchActiveCrewsDisplaySet: (which) => set(produce(state => {
@@ -996,13 +997,6 @@ const useStore = create(
 
         //
         // SPECIAL GETTERS
-
-        getPreferredUiCurrency: () => {
-          const s = get();
-          if ([TOKEN.ETH, TOKEN.USDC].includes(s.preferredUiCurrency)) return s.preferredUiCurrency;
-          else if (s.currentSession?.walletId) return TOKEN.ETH;
-          return TOKEN.USDC;
-        },
 
         getShadowQuality: () => {
           // NOTE: 0 is no shadows, 1 is single-light shadows, 2 is CSMs

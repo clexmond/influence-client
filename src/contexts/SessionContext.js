@@ -10,6 +10,7 @@ import { AUTH_PHASES, getAuthPhaseLabel } from '~/lib/authFlow';
 import { usePrivyWallet } from '~/contexts/PrivyWalletContext';
 import { getLoginSessionVerificationHashes, getLoginTypedData, getLoginVerificationParams } from '~/lib/loginTypedData';
 import { createAuthenticatedPaymasterRpc } from '~/lib/paymaster';
+import { TOKEN } from '~/lib/priceUtils';
 import { areChainsEqual, fireTrackingEvent, resolveChainId } from '~/lib/utils';
 import {
   createWalletConnectors,
@@ -380,9 +381,12 @@ export function SessionProvider({ children }) {
         if (authFlowId !== authFlowRef.current) return;
 
         const capabilities = getWalletCapabilities(walletId);
-        setPaymasterTokens(capabilities.requiresSponsoredTransactions
-          ? []
-          : await newAccount.paymaster?.getSupportedTokens?.() || []);
+        try {
+          setPaymasterTokens(await newAccount.paymaster?.getSupportedTokens?.() || []);
+        } catch (error) {
+          console.warn('Unable to load paymaster-supported fee tokens.', error);
+          setPaymasterTokens([]);
+        }
         if (authFlowId !== authFlowRef.current) return;
 
         setWalletAccount(newAccount);
@@ -804,7 +808,7 @@ export function SessionProvider({ children }) {
 
   const gasTokens = useMemo(() => {
     if (gameplay.feeTokens?.length > 0 && paymasterTokens?.length > 0) {
-      return gameplay.feeTokens.filter((t) => {
+      return [TOKEN.USDC, TOKEN.SWAY].filter((t) => gameplay.feeTokens.includes(t)).filter((t) => {
         return !!paymasterTokens.find((pt) => Address.areEqual(pt.token_address, t));
       });
     }
@@ -902,6 +906,7 @@ export function SessionProvider({ children }) {
       connecting: connecting || !!promptLogin,
       isDeployed: authenticated ? currentSession?.isDeployed : null,
       gasTokens: authenticated ? gasTokens : null,
+      paymasterTokens: authenticated ? paymasterTokens : null,
       gameplaySessionReady,
       provider,
       prepareGameplaySession,
