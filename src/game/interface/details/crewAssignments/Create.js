@@ -27,6 +27,7 @@ import TextInput from '~/components/TextInput';
 import TriangleTip from '~/components/TriangleTip';
 import ChainTransactionContext from '~/contexts/ChainTransactionContext';
 import FundingFlow from '~/game/launcher/store/FundingFlow';
+import { getCrewmatePaymentMode } from '~/game/launcher/store/crewmatePayment';
 import StripeEmbeddedCheckout, { stripePromise } from '~/game/launcher/store/components/StripeEmbeddedCheckout';
 import useBookSession, { bookIds, getBookCompletionImage } from '~/hooks/useBookSession';
 import useCrewManager from '~/hooks/actionManagers/useCrewManager';
@@ -1568,7 +1569,8 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
 
   const { data: crewmatePurchaseProducts } = useQuery({
     queryKey: ['crewmatePurchaseProducts'],
-    queryFn: async () => normalizeCrewmatePurchaseProducts((await api.getCrewmatePurchaseProducts()).products || [])
+    queryFn: async () => normalizeCrewmatePurchaseProducts((await api.getCrewmatePurchaseProducts()).products || []),
+    enabled: !!stripePromise
   });
 
   const crewmatePurchaseProduct = useMemo(() => crewmatePurchaseProducts?.[0] || null, [crewmatePurchaseProducts]);
@@ -1576,7 +1578,7 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
   const crewmatePurchaseCheckoutQuery = useQuery({
     queryKey: ['crewmatePurchaseCheckout', stripeCheckoutSessionId],
     queryFn: () => api.getCrewmatePurchaseCheckout(stripeCheckoutSessionId),
-    enabled: !!authenticated && !!stripeCheckoutSessionId,
+    enabled: !!stripePromise && !!authenticated && !!stripeCheckoutSessionId,
     refetchInterval: (query) => isCrewmatePurchaseCheckoutActive(query.state.data?.purchase?.status) ? crewmatePurchaseCheckoutPollMs : false
   });
 
@@ -1778,7 +1780,22 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
       ].includes(stripePurchase?.status)
     );
 
-    if (targetUsdcValue > currentUsdcBalance) {
+    const paymentMode = getCrewmatePaymentMode({
+      priceUsdc: targetUsdcValue,
+      balanceUsdc: currentUsdcBalance,
+      stripeEnabled: !!stripePromise
+    });
+
+    if (paymentMode === 'fund') {
+      return {
+        disabled: !purchaseAcknowledged,
+        mode: 'fund',
+        onConfirm: () => openAdvancedFunding(price),
+        confirmText: 'Fund Wallet'
+      };
+    }
+
+    if (paymentMode === 'stripe') {
       return {
         confirmButtonProps: { loading: pendingStripePurchase },
         disabled: !purchaseAcknowledged || pendingStripePurchase,
@@ -2155,6 +2172,9 @@ const CrewAssignmentCreate = ({ backLocation, bookSession, coverImage, crewId, c
                   Crewmate recruitment is <b>5.00 USDC</b>. To continue, you are authorizing your wallet to submit
                   the purchase transaction for <b>5.00 USDC</b>.
                 </>
+              )}
+              {!crewmate.id && confirmationProps?.mode === 'fund' && (
+                <>Crewmate recruitment is <b>5.00 USDC</b>. Add funds to your wallet to complete the purchase with crypto.</>
               )}
               {!crewmate.id && confirmationProps?.mode === 'stripe' && (
                 <>

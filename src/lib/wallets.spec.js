@@ -1,3 +1,5 @@
+jest.mock('~/appConfig/features', () => ({ features: { privy: true } }), { virtual: true });
+
 jest.mock('@cartridge/controller', () => ({
   __esModule: true,
   default: jest.fn()
@@ -132,4 +134,19 @@ test('cleans stale Cartridge controller state on disconnect', async () => {
   expect(controller.subscriptions[0].type).toBe('networkChanged');
   expect(document.getElementById('controller')).toBeNull();
   expect(document.getElementById('controller-viewport')).toBeNull();
+});
+
+
+test('makes Ready the default and omits Privy when unconfigured, including a remembered Privy login', () => {
+  jest.isolateModules(() => {
+    const { features } = require('~/appConfig/features');
+    features.privy = false;
+    const wallets = require('./wallets');
+    expect(wallets.getPrimaryNewPlayerLoginOptions()).toEqual({ [wallets.WALLET_IDS.ARGENT_X]: true });
+    expect(wallets.getLoginWalletOptions(wallets.WALLET_IDS.PRIVY)).toEqual([
+      wallets.WALLET_IDS.ARGENT_X, wallets.WALLET_IDS.CONTROLLER, wallets.WALLET_IDS.BRAAVOS
+    ]);
+    expect(wallets.normalizeEnabledConnectors({ privy: true, argentX: true })).toEqual({ argentX: true });
+    features.privy = true;
+  });
 });

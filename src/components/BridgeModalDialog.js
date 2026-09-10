@@ -1,3 +1,4 @@
+import useStore from '~/hooks/useStore';
 import React from 'react';
 import styled from 'styled-components';
 
@@ -77,9 +78,10 @@ const CloseButton = styled(IconButton)`
 // TODO: since the updated HUD login screen, this is no longer linked anywhere... find a place for it
 
 const BridgeModalDialog = ({ onClose }) => {
+  const dispatchLauncherPage = useStore(s => s.dispatchLauncherPage);
   const openBridge = () => {
-    window.open(appConfig.get('Url.bridge'));
     onClose();
+    dispatchLauncherPage('bridge');
   };
 
   return (

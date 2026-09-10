@@ -50,7 +50,7 @@ const NewCoreSample = ({ asteroid, lot, coreSampleManager, currentSamplingAction
 
   const prepop = useMemo(() => ({
     origin: currentSamplingAction?.origin ? { ...currentSamplingAction.origin } : props.preselect?.origin,
-    resourceId: props.preselect?.resourceId || (resourceMap?.active && resourceMap?.selected || undefined)
+    resourceId: props.preselect?.resourceId || ((resourceMap?.active && resourceMap?.selected) || undefined)
   }), [currentSamplingAction, props.preselect, resourceMap]);
 
   const { data: originEntity } = useEntity(prepop.origin);
@@ -91,7 +91,7 @@ const NewCoreSample = ({ asteroid, lot, coreSampleManager, currentSamplingAction
     }
   }, [resourceMap?.active]);
 
-  const [sample, initialYieldTonnage]  = useMemo(() => {
+  const [, initialYieldTonnage]  = useMemo(() => {
     if (lot?.deposits && resourceId && sampleId) {
       const thisSample = lot.deposits.find((s) => s.id === sampleId);
       if (thisSample) {

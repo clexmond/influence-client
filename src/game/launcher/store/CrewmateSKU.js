@@ -14,7 +14,6 @@ import { PurchaseForm, PurchaseFormRows } from './components/PurchaseForm';
 import SKUHighlight from './components/SKUHighlight';
 import theme from '~/theme';
 import { barebonesCrewmateAppearance } from '~/hooks/useStarterPacks';
-import { nativeBool } from '~/lib/utils';
 import useStore from '~/hooks/useStore';
 import formatters from '~/lib/formatters';
 
@@ -84,9 +83,8 @@ const CrewmateSKU = () => {
   const activeCrew = crew || crews?.find((c) => c.id === selectedCrewId) || null;
 
   const onOpenCrew = useCallback(() => {
-    if (!activeCrew?.id) return;
     dispatchLauncherPage();
-    history.push(`/crew/${activeCrew.id}`);
+    history.push(activeCrew?.id ? `/crew/${activeCrew.id}` : '/recruit/0');
   }, [activeCrew?.id, dispatchLauncherPage, history]);
 
   return (
@@ -157,11 +155,10 @@ const CrewmateSKU = () => {
           </div>
 
           <Button
-            disabled={nativeBool(!activeCrew?.id)}
             isTransaction
             onClick={onOpenCrew}
             style={{ width: '100%' }}>
-            Open Active Crew
+            {activeCrew?.id ? 'Open Active Crew' : 'Recruit First Crewmate'}
           </Button>
         </Body>
       </CrewmatePurchaseForm>

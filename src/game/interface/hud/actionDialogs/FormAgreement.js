@@ -4,7 +4,7 @@ import styled from 'styled-components';
 import numeral from 'numeral';
 
 import { appConfig } from '~/appConfig';
-import { CheckIcon, CloseIcon, ExtendAgreementIcon, FormAgreementIcon, FormLotAgreementIcon, GiveNoticeIcon, LinkIcon, CancelAgreementIcon, LotControlIcon, PermissionIcon, RefreshIcon, SwayIcon, WarningOutlineIcon, WarningIcon } from '~/components/Icons';
+import { CheckIcon, CloseIcon, ExtendAgreementIcon, FormAgreementIcon, FormLotAgreementIcon, GiveNoticeIcon, LinkIcon, CancelAgreementIcon, LotControlIcon, PermissionIcon, RefreshIcon, SwayIcon, WarningIcon } from '~/components/Icons';
 import useCrewContext from '~/hooks/useCrewContext';
 import useStore from '~/hooks/useStore';
 import { daysToSeconds, reactBool, locationsArrToObj, formatFixed, monthsToSeconds, secondsToMonths, nativeBool, secondsToDays, safeBigInt, formatTimer } from '~/lib/utils';
@@ -151,15 +151,7 @@ const Alert = styled.div`
   }
 `;
 
-const FormAgreement = ({
-  agreementManager,
-  entity,
-  isExtension,
-  isTermination,
-  permission,
-  stage,
-  ...props
-}) => {
+const FormAgreement = ({ agreementManager, entity, isExtension, isTermination, permission, stage, ...props }) => {
   const { provider } = useSession();
   const createAlert = useStore(s => s.dispatchAlertLogged);
 

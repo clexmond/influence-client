@@ -21,6 +21,10 @@ const adjustWorkbox = () => config => {
   config.plugins.forEach(p => {
     if (p.constructor.name === 'InjectManifest') {
       p.config.maximumFileSizeToCacheInBytes = 30 * 1024 * 1024;
+      p.config.exclude = [
+        ...(p.config.exclude || []),
+        /runtime-config\.js$/
+      ];
     }
   });
 

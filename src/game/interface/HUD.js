@@ -1,3 +1,4 @@
+import { features } from '~/appConfig/features';
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import styled from 'styled-components';
@@ -106,7 +107,7 @@ const SimulationRedirector = ({ simulationEnabled }) => {
 
   useEffect(() => {
     if (readyToRedirect && !!accountAddress) {
-      if (walletCapabilities?.preferredForStarterPacks) {
+      if (features.stripe && walletCapabilities?.preferredForStarterPacks) {
         dispatchLauncherPage('store', 'packs', { menuCollapsed: true });
       } else {
         history.push('/recruit/0');
@@ -119,7 +120,7 @@ const SimulationRedirector = ({ simulationEnabled }) => {
 };
 
 const HUD = () => {
-  const { accountAddress, authenticated, authenticating } = useSession();
+  const { authenticated, authenticating } = useSession();
   const { loading } = useCrewContext();
   const simulationEnabled = useSimulationEnabled();
 

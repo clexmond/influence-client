@@ -126,4 +126,6 @@ const FormLotLeaseAgreement = ({ accountCrewIds, asteroid, blockTime, crew, lot,
   );
 };
 
-export default { Component: FormLotLeaseAgreement, isVisible };
+const actionDefinition = { Component: FormLotLeaseAgreement, isVisible };
+
+export default actionDefinition;

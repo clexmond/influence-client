@@ -382,7 +382,10 @@ export function SessionProvider({ children }) {
 
         const capabilities = getWalletCapabilities(walletId);
         try {
-          setPaymasterTokens(await newAccount.paymaster?.getSupportedTokens?.() || []);
+          const paymasterConfigured = capabilities.requiresSponsoredTransactions
+            ? appConfig.get('Starknet.paymasterProxy')
+            : appConfig.get('Starknet.paymaster');
+          setPaymasterTokens(paymasterConfigured ? (await newAccount.paymaster?.getSupportedTokens?.() || []) : []);
         } catch (error) {
           console.warn('Unable to load paymaster-supported fee tokens.', error);
           setPaymasterTokens([]);
@@ -611,8 +614,8 @@ export function SessionProvider({ children }) {
   const signLoginChallenge = useCallback(async (loginMessage, walletId) => {
     try {
       return await withManualWalletGuard(walletAccount.signMessage(loginMessage), walletId);
-    } catch (e) {
-      e = normalizeAuthSigningError(e);
+    } catch (error) {
+      const e = normalizeAuthSigningError(error);
       if (isLoginCancelledError(e)) throw e;
       if (e.code === 'AUTH_TYPED_DATA_UNSUPPORTED') throw e;
 

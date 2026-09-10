@@ -89,10 +89,12 @@
     "start": "react-app-rewired start",
     "build": "react-app-rewired build && npm run build-server",
     "build-server": "webpack --config server.webpack.config.js",
+    "test:runtime-config": "node --test runtime-config.test.cjs",
     "test": "react-app-rewired test",
     "eject": "react-scripts eject",
     "heroku-prebuild": "node ./prebuild.js",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "test:browser": "playwright test --config=playwright.config.cjs"
   },
   "eslintConfig": {
     "env": {
@@ -116,6 +118,7 @@
     ]
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@svgr/webpack": "^6.5.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -132,7 +135,16 @@
     "worker-loader": "^3.0.8"
   },
   "overrides": {
-    "@svgr/webpack": "$@svgr/webpack"
+    "@svgr/webpack": "$@svgr/webpack",
+    "graphql-request": {
+      "form-data": "3.0.5"
+    },
+    "jsdom": {
+      "form-data": "3.0.5"
+    },
+    "shell-quote": "1.10.0",
+    "webpack": "5.110.3",
+    "websocket-driver": "0.7.5"
   },
   "target": "web"
 }

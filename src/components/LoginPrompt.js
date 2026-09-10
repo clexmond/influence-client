@@ -1,3 +1,4 @@
+import { features } from '~/appConfig/features';
 import { useMemo, useState } from 'react';
 import styled from 'styled-components';
 
@@ -210,9 +211,9 @@ const LoginPrompt = ({
   busy,
   expanded = true,
   onClick,
-  options = ['privy', 'controller', 'argentX', 'braavos']
+  options = features.privy ? ['privy', 'controller', 'argentX', 'braavos'] : ['argentX', 'controller', 'braavos']
 }) => {
-  const optionConfigs = options.map((option) => configs[option]).filter(Boolean);
+  const optionConfigs = options.filter((option) => features.privy || option !== 'privy').map((option) => configs[option]).filter(Boolean);
   const [primaryConfig, otherConfigs] = useMemo(
     () => [optionConfigs[0], optionConfigs.slice(1)],
     [optionConfigs]

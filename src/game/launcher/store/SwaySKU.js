@@ -11,8 +11,8 @@ import useSession from '~/hooks/useSession';
 import useStore from '~/hooks/useStore';
 import useSwapHelper from '~/hooks/useSwapHelper';
 import { TOKEN, TOKEN_FORMAT, TOKEN_SCALE } from '~/lib/priceUtils';
-import { cleanseTxHash, fireTrackingEvent, nativeBool, reactBool, roundToPlaces } from '~/lib/utils';
-import { PurchaseForm, PurchaseFormRows } from './components/PurchaseForm';
+import { cleanseTxHash, fireTrackingEvent, reactBool, roundToPlaces } from '~/lib/utils';
+import { PurchaseForm } from './components/PurchaseForm';
 import SKUTitle from './components/SKUTitle';
 import Button from '~/components/ButtonPill';
 import { UsdPrice } from '~/components/UserPrice';
@@ -94,12 +94,12 @@ const SwaySKU = () => {
   const queryClient = useQueryClient();
 
   const createAlert = useStore(s => s.dispatchAlertLogged);
-  const [eth, setETH] = useState();
+  const [, setETH] = useState();
   const [sway, setSway] = useState();
   const [usdc, setUSDC] = useState();
   const [isProcessing, setIsProcessing] = useState();
 
-  const handleEthChange = useCallback((newValue) => {
+  useCallback((newValue) => {
     setETH(newValue);
 
     const value = priceHelper.from(newValue * TOKEN_SCALE[TOKEN.ETH], TOKEN.ETH);

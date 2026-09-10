@@ -2,39 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Asteroid, Crew, Crewmate, Lot, Permission, Product, Time } from '@influenceth/sdk';
 import styled from 'styled-components';
 
-import { AddRationsIcon, ForwardIcon, InventoryIcon, RouteIcon, SwayIcon, WarningIcon, StopwatchIcon, FoodIcon } from '~/components/Icons';
+import { AddRationsIcon, ForwardIcon, InventoryIcon, RouteIcon, WarningIcon, StopwatchIcon, FoodIcon } from '~/components/Icons';
 import ResourceThumbnail from '~/components/ResourceThumbnail';
 import useCrewContext from '~/hooks/useCrewContext';
 import useLot from '~/hooks/useLot';
 import { reactBool, formatTimer, locationsArrToObj, getCrewAbilityBonuses, formatFixed } from '~/lib/utils';
-import {
-  ItemSelectionSection,
-  ActionDialogFooter,
-  ActionDialogHeader,
-  ActionDialogStats,
-  formatMass,
-  formatVolume,
-  getBonusDirection,
-  TimeBonusTooltip,
-  FlexSectionSpacer,
-  ActionDialogBody,
-  FlexSection,
-  TransferSelectionDialog,
-  ProgressBarSection,
-  ActionDialogTabs,
-  InventoryChangeCharts,
-  TransferDistanceDetails,
-  FlexSectionBlock,
-  FlexSectionInputBlock,
-  WarningAlert,
-  InventorySelectionDialog,
-  CrewInputBlock,
-  MiniBarChart,
-  formatResourceMass,
-  MultiSourceInputBlock,
-  OrderSelectionDialog,
-  formatTimeRequirements,
-} from './components';
+import { ItemSelectionSection, ActionDialogFooter, ActionDialogHeader, ActionDialogStats, formatMass, formatVolume, getBonusDirection, TimeBonusTooltip, FlexSectionSpacer, ActionDialogBody, FlexSection, TransferSelectionDialog, ProgressBarSection, ActionDialogTabs, InventoryChangeCharts, TransferDistanceDetails, FlexSectionBlock, FlexSectionInputBlock, InventorySelectionDialog, CrewInputBlock, MiniBarChart, formatResourceMass, MultiSourceInputBlock, OrderSelectionDialog, formatTimeRequirements } from './components';
 import { ActionDialogInner } from '../ActionDialog';
 import actionStages from '~/lib/actionStages';
 import theme from '~/theme';
@@ -112,12 +85,7 @@ const FoodMiniBar = ({ currentFood, addingFood, barColor, deltaValue, maxFood, p
   />
 );
 
-const FeedCrew = ({
-  asteroid,
-  feedCrewManager,
-  stage,
-  ...props
-}) => {
+const FeedCrew = ({ asteroid, feedCrewManager, stage, ...props }) => {
   const { currentFeeding, feedCrew } = feedCrewManager;
   const { crew, crewCan } = useCrewContext();
   const blockTime = useBlockTime();
@@ -552,7 +520,7 @@ const FeedCrew = ({
           <TransferSelectionDialog
             sourceEntity={origin}
             sourceContents={originInventory?.contents || []}
-            targetInventoryConstraints={{ [129]: Math.max(0, foodStats.maxFood - foodStats.currentFood) }}
+            targetInventoryConstraints={{ 129: Math.max(0, foodStats.maxFood - foodStats.currentFood) }}
             initialSelection={selectedItems}
             inventoryBonuses={crew?._inventoryBonuses}
             onClose={() => setTransferSelectorOpen(false)}

@@ -1,3 +1,4 @@
+import { features } from '~/appConfig/features';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { createPortal } from 'react-dom';
@@ -94,9 +95,9 @@ const SecondaryOptionsToggle = styled.button`
 `;
 
 const SecondaryOptions = styled.div`
-  border-top: 1px solid #333;
-  margin-top: 10px;
-  padding-top: 10px;
+  border-top: ${p => p.$primary ? 'none' : '1px solid #333'};
+  margin-top: ${p => p.$primary ? 0 : 10}px;
+  padding-top: ${p => p.$primary ? 0 : 10}px;
 `;
 
 const AdvancedOptionButton = styled.button`
@@ -427,6 +428,10 @@ export const FundingFlow = ({ mode, primaryAction, swapRequirements = [], totalP
     [totalPrice, usdcBalance]
   );
 
+  const fundingAction = primaryAction || (totalPrice && fundsNeeded?.usdcValue === 0 && onFunded
+    ? { label: 'Continue', onClick: onFunded }
+    : null);
+
   const suggestedAmounts = useMemo(() => getSuggestedAmounts(fundsNeeded), [fundsNeeded]);
   const onClickBanxa = useCallback((amount) => async () => {
     fireTrackingEvent('funding_start', { externalId: accountAddress, provider: 'banxa' });
@@ -595,20 +600,20 @@ export const FundingFlow = ({ mode, primaryAction, swapRequirements = [], totalP
             </Receipt>
 
             <FundingButtons>
-              {primaryAction
+              {fundingAction
                 ? (
                   <FundingOptionButton
-                    disabled={nativeBool(primaryAction.disabled)}
+                    disabled={nativeBool(fundingAction.disabled)}
                     isTransaction
                     onClick={() => {
-                      primaryAction.onClick();
+                      fundingAction.onClick();
                       onClose();
                     }}>
-                    <span>{primaryAction.label}</span>
+                    <span>{fundingAction.label}</span>
                     <ChevronRightIcon />
                   </FundingOptionButton>
                 )
-                : (
+                : (features.banxa &&
                   <FundingOptionButton isTransaction onClick={onClickBanxa(suggestedAmounts[0])}>
                     <span>Add USDC with Banxa</span>
                     <ChevronRightIcon />
@@ -616,17 +621,17 @@ export const FundingFlow = ({ mode, primaryAction, swapRequirements = [], totalP
                 )
               }
 
-              <SecondaryOptionsToggle
+              {features.banxa && <SecondaryOptionsToggle
                 $open={showSecondaryOptions}
                 onClick={() => setShowSecondaryOptions(!showSecondaryOptions)}
                 type="button">
                 <span>Other funding options</span>
                 <ChevronRightIcon />
-              </SecondaryOptionsToggle>
+              </SecondaryOptionsToggle>}
 
-              {showSecondaryOptions && (
-                <SecondaryOptions>
-                  {primaryAction && (
+              {(!features.banxa || showSecondaryOptions) && (
+                <SecondaryOptions $primary={!features.banxa}>
+                  {fundingAction && features.banxa && (
                     <FundingOptionButton isTransaction onClick={onClickBanxa(suggestedAmounts[0])}>
                       <span>Add USDC with Banxa</span>
                       <ChevronRightIcon />
@@ -649,13 +654,13 @@ export const FundingFlow = ({ mode, primaryAction, swapRequirements = [], totalP
                     <ChevronRightIcon />
                   </AdvancedOptionButton>
 
-                  <AdvancedOptionButton onClick={onClickLayerswap}>
+                  {features.layerswap && <AdvancedOptionButton onClick={onClickLayerswap}>
                     <AdvancedOptionIcon>
                       <LayerswapIcon />
                     </AdvancedOptionIcon>
                     <label>Layerswap</label>
                     <ChevronRightIcon />
-                  </AdvancedOptionButton>
+                  </AdvancedOptionButton>}
 
                   <AdvancedOptionButton onClick={onClickStarkgate}>
                     <AdvancedOptionIcon>

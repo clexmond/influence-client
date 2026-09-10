@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { ACESFilmicToneMapping, AxesHelper, CameraHelper, Color, DirectionalLight, DirectionalLightHelper, Vector3 } from 'three';
+import { AxesHelper, CameraHelper, Color, DirectionalLight, DirectionalLightHelper, Vector3 } from 'three';
 import gsap from 'gsap';
 import { AdalianOrbit, Asteroid, Entity, Lot, Product, Ship } from '@influenceth/sdk';
 
@@ -27,11 +27,7 @@ import visualConfigs from '~/lib/visuals';
 
 const validateHex = (v) => /[a-f0-9]{6}/i.test(v) ? v : '';
 
-const {
-  CHUNK_SPLIT_DISTANCE,
-  MIN_FRUSTUM_AT_SURFACE,
-  UPDATE_QUADTREE_EVERY,
-} = constants;
+const { CHUNK_SPLIT_DISTANCE, MIN_FRUSTUM_AT_SURFACE, UPDATE_QUADTREE_EVERY } = constants;
 
 const UPDATE_DISTANCE_MULT = CHUNK_SPLIT_DISTANCE * UPDATE_QUADTREE_EVERY;
 

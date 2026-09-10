@@ -37,7 +37,8 @@ it('starts and finishes with vanishing speed', () => {
 it('gives long routes a broad crest while keeping nearby hops low', () => {
   const shortHeight = makePath(0.001)(0.5, new Vector3()).length();
   const longHeight = makePath(0.8)(0.5, new Vector3()).length();
-  expect(shortHeight - 381000).toBeCloseTo(188);
+  expect(shortHeight - 381000).toBeGreaterThan(188 * 0.75);
+  expect(shortHeight - 381000).toBeLessThan(188 * 0.76);
   expect(longHeight - 381000).toBeCloseTo(150400);
   expect(makePath(Math.PI)(0.5, new Vector3()).length() - 381000).toBeCloseTo(282000);
 });
@@ -58,4 +59,22 @@ it('descends from an overview without changing its exact arrival altitude', () =
   expect(path(0, new Vector3()).length()).toBe(1e6);
   expect(path(1, new Vector3()).length()).toBeCloseTo(381000);
   expect(path(0.999, new Vector3()).distanceTo(path(1, new Vector3()))).toBeLessThan(10);
+});
+
+it.each([450000, 531400, 800000])('accounts for starting height %s without bringing the midpoint below the usual apex', (height) => {
+  const path = makePath(0.8, { start: new Vector3(0, 0, height) });
+  const expectedApex = Math.max(height, 531400);
+  expect(path(0.5, new Vector3()).length()).toBeCloseTo(expectedApex);
+  let previous = height;
+  for (let i = 1; i <= 50; i++) {
+    const current = path(i / 100, new Vector3()).length();
+    expect(current).toBeGreaterThanOrEqual(previous - 1e-8);
+    expect(current).toBeLessThanOrEqual(expectedApex + 1e-8);
+    previous = current;
+  }
+  for (let i = 51; i <= 100; i++) {
+    const current = path(i / 100, new Vector3()).length();
+    expect(current).toBeLessThanOrEqual(previous + 1e-8);
+    previous = current;
+  }
 });

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { features } from '~/appConfig/features';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import styled, { css, keyframes } from 'styled-components';
 
@@ -227,12 +228,12 @@ const AvatarMenu = () => {
       return history.push(`/crewmate/${crewmateId}`);
     }
 
-    if (!crewmateId && !crew?._crewmates?.length && walletCapabilities?.preferredForStarterPacks) {
+    if (!crewmateId && !crew?._crewmates?.length && features.stripe && walletCapabilities?.preferredForStarterPacks) {
       dispatchLauncherPage('store', 'packs', { menuCollapsed: true });
       return;
     }
 
-    return history.push('/crew');
+    return history.push(!crewmateId && !crew?._crewmates?.length ? '/recruit/0' : '/crew');
   }, [crew?._crewmates?.length, dispatchLauncherPage, history, simulation, simulationActions, walletCapabilities?.preferredForStarterPacks]);
 
   useEffect(() => {

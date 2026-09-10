@@ -137,7 +137,7 @@ const Construct = ({ asteroid, lot, constructionManager, stage, ...props }) => {
     },
   ]), [constructionBonus, constructionTime, crewTravelTime, crewTravelBonus, tripDetails]);
 
-  const status = useMemo(() => {
+  useMemo(() => {
     if (constructionStatus === 'PLANNED') {
       return 'BEFORE';
     } else if (constructionStatus === 'UNDER_CONSTRUCTION') {

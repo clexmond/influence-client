@@ -7,21 +7,18 @@
     "defaultMuted": false,
     "disableScreensizeWarning": false,
     "enableDevTools": false,
-    "feeRewardsForAllWallets": false,
     "hideSocial": true,
     "verboseLogs": false
   },
   "Api": {
-    "argent": "",
-    "argentWebWallet": "",
     "avnu": "",
     "banxa": "",
+    "ipfs": "",
     "influence": "",
     "ClientId": {
       "google": "",
       "gtm": "",
       "layerswap": "",
-      "walletConnect": "",
       "stripe": ""
     }
   },
@@ -68,11 +65,11 @@
       "dispatcher": "",
       "escrow": "",
       "shipToken": "",
-      "swayToken": ""
+      "swayToken": "",
+      "strkToken": ""
     }
   },
   "Url": {
-    "bridge": "",
     "bugReport": "https://discord.gg/influenceth",
     "colonizationMissions": "",
     "communityMissions": "https://influence.wendash.com/",

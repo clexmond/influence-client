@@ -1,3 +1,4 @@
+import { features } from '~/appConfig/features';
 import { useEffect, useMemo, useRef } from 'react';
 
 import AsteroidsHeroImage from '~/assets/images/sales/asteroids_hero.png';
@@ -20,7 +21,7 @@ import SKULayout from './store/components/SKULayout';
 import { appConfig } from '~/appConfig';
 
 const storeAssets = {
-  packs: 'Starter Packs',
+  ...(features.stripe ? { packs: 'Starter Packs' } : {}),
   sway: 'Sway',
   crewmates: 'Crewmates',
   asteroids: 'Asteroids',
@@ -58,8 +59,8 @@ const Store = () => {
   }, []);
 
   const initialSelection = useMemo(() => {
-    // use specified starting page, or default (starter packs for new users, sway for existing)
-    let selectionKey = initialSubpage || (!!crew ? 'sway' : 'packs');
+    const defaultSelection = crew ? 'sway' : (features.stripe ? 'packs' : 'crewmates');
+    const selectionKey = Object.prototype.hasOwnProperty.call(storeAssets, initialSubpage) ? initialSubpage : defaultSelection;
     const linkedSelectionIndex = Object.keys(storeAssets).indexOf(selectionKey);
     return linkedSelectionIndex >= 0 ? linkedSelectionIndex : 0;
   }, [!crew, initialSubpage]);

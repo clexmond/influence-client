@@ -56,6 +56,14 @@ const Wrapper = styled.div`
     min-width: 0;
   }
 
+  & h4 {
+    align-items: center;
+    display: flex;
+    font-size: 16px;
+    gap: 6px;
+    margin: 0 0 10px;
+  }
+
   & small {
     color: #aaa;
     display: block;
@@ -94,11 +102,13 @@ const Wrapper = styled.div`
   & footer {
     display: flex;
     flex: 0 0 100%;
+    flex-wrap: wrap;
     gap: 8px;
-  }
 
-    & svg {
-      margin-left: 8px;
+    & > button {
+      flex: 1 0 140px;
+      min-width: 0;
+      white-space: nowrap;
     }
   }
 `;
@@ -216,7 +226,7 @@ const FundingStatusIndicator = ({ collapsed = false }) => {
             </Balance>
           </div>
           <footer>
-            <Button isTransaction onClick={() => setIsFunding(true)}>
+            <Button isTransaction size="small" onClick={() => setIsFunding(true)}>
               Add Funds <ChevronRightIcon />
             </Button>
           </footer>
@@ -266,11 +276,11 @@ const FundingStatusIndicator = ({ collapsed = false }) => {
         </div>
         <footer>
           {actionUrl && !isTerminalError && (
-            <button onClick={() => window.open(actionUrl, '_blank', 'noopener')}>
+            <Button size="small" onClick={() => window.open(actionUrl, '_blank', 'noopener')}>
               Check Status <ChevronRightIcon />
-            </button>
+            </Button>
           )}
-          <Button isTransaction onClick={() => setIsFunding(true)}>
+          <Button isTransaction size="small" onClick={() => setIsFunding(true)}>
             Add Funds <ChevronRightIcon />
           </Button>
         </footer>

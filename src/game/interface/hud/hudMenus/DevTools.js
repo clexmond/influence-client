@@ -1,3 +1,4 @@
+import { features } from '~/appConfig/features';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { NoToneMapping } from 'three';
@@ -80,7 +81,7 @@ const reader = new FileReader();
 const DevTools = () => {
   const { assetType, overrides, ...setters } = useContext(DevToolContext);
 
-  const [defaultSettings, settings] = useMemo(() => {
+  const [, settings] = useMemo(() => {
     if (!assetType) return [{}, {}];
 
     const defaults = assetType === 'scene' ? visualConfigs.scene : visualConfigs.modelViewer[assetType];
@@ -239,7 +240,7 @@ const DevTools = () => {
         </InnerSection>
       </HudMenuCollapsibleSection>
 
-      <HudMenuCollapsibleSection titleText="Starter Packs">
+      {features.stripe && <HudMenuCollapsibleSection titleText="Starter Packs">
         <InnerSection>
           <Button onClick={() => dispatchLauncherPage('store', 'packs')}>
             Open Starter Pack Store
@@ -251,7 +252,7 @@ const DevTools = () => {
             Restart Training
           </Button>
         </InnerSection>
-      </HudMenuCollapsibleSection>
+      </HudMenuCollapsibleSection>}
 
       <HudMenuCollapsibleSection titleText="Viewer">
         <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between' }}>

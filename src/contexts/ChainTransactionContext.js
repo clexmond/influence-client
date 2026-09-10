@@ -755,7 +755,10 @@ export function ChainTransactionProvider({ children }) {
   const executeWithAccount = useCallback(async (calls, options = {}) => {
     const account = walletAccountRef.current;
     if (!account) throw new Error('Account is disconnected');
-    const usePaymaster = options.usePaymaster !== false;
+    const paymasterConfigured = walletCapabilities.requiresSponsoredTransactions
+      ? appConfig.get('Starknet.paymasterProxy')
+      : appConfig.get('Starknet.paymaster');
+    const usePaymaster = options.usePaymaster !== false && !!paymasterConfigured;
 
     // Format calls for proper stringification
     const formattedCalls = calls.map((call) => {

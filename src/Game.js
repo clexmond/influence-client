@@ -1,3 +1,4 @@
+import { features } from '~/appConfig/features';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { ThemeProvider, createGlobalStyle } from 'styled-components';
@@ -100,7 +101,7 @@ const LauncherRedirect = () => {
   // redirect to launcher if initial load and trying to link to /launcher/*
   useEffect(() => {
     const checkoutSessionId = new URLSearchParams(history.location.search).get(STARTER_PACK_CHECKOUT_PARAM);
-    if (checkoutSessionId) {
+    if (checkoutSessionId && features.stripe) {
       dispatchLauncherPage('store', 'packs');
       if (history.location.pathname !== '/') {
         history.replace({ pathname: '/', search: history.location.search });

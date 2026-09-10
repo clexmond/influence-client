@@ -1,3 +1,4 @@
+import { features } from '~/appConfig/features';
 import ControllerProvider from '@cartridge/controller';
 
 import {
@@ -102,15 +103,12 @@ export const walletRegistry = {
   }
 };
 
-export const defaultWalletOrder = [
-  WALLET_IDS.PRIVY,
-  WALLET_IDS.CONTROLLER,
-  WALLET_IDS.ARGENT_X,
-  WALLET_IDS.BRAAVOS
-];
+export const defaultWalletOrder = features.privy
+  ? [WALLET_IDS.PRIVY, WALLET_IDS.CONTROLLER, WALLET_IDS.ARGENT_X, WALLET_IDS.BRAAVOS]
+  : [WALLET_IDS.ARGENT_X, WALLET_IDS.CONTROLLER, WALLET_IDS.BRAAVOS];
 
 export const getPrimaryNewPlayerLoginOptions = () => ({
-  [WALLET_IDS.PRIVY]: true
+  [features.privy ? WALLET_IDS.PRIVY : WALLET_IDS.ARGENT_X]: true
 });
 
 export const defaultEnabledConnectors = defaultWalletOrder.reduce((connectors, walletId) => {
@@ -120,7 +118,8 @@ export const defaultEnabledConnectors = defaultWalletOrder.reduce((connectors, w
 
 export const normalizeEnabledConnectors = (enabledConnectors = defaultEnabledConnectors) => {
   return Object.entries(enabledConnectors).reduce((normalized, [id, enabled]) => {
-    normalized[normalizeConnectorId(id)] = enabled;
+    const walletId = normalizeConnectorId(id);
+    if (defaultWalletOrder.includes(walletId)) normalized[walletId] = enabled;
     return normalized;
   }, {});
 };
