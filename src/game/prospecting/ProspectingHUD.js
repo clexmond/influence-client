@@ -295,6 +295,7 @@ export default function ProspectingHUD() {
             </Metrics>
           )}
           <SegmentQuality cell={selectedCell} />
+          <Note role="status">{eligibility.disabledReason}</Note>
           {choices.map((choice, method) => (
             <Choice key={choice.label}>
               <ChoiceHeading>
@@ -308,7 +309,6 @@ export default function ProspectingHUD() {
               <Note>{choice.risk}</Note>
             </Choice>
           ))}
-          <Note role="status">{eligibility.disabledReason}</Note>
           <Note>Each action uses 1 sample. Results can leave quantity or rate unchanged.</Note>
           <Rule />
           <Outcome role="status">
